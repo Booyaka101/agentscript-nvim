@@ -82,19 +82,30 @@ Remaining work is distribution only (repo push + upstream submissions).
   read zip / mishandles `D:` paths) — run the test from PowerShell (native
   bsdtar) or pre-extract zig into `scratch/zig-extract/` first.
 
-## Next steps (exact)
+## Shipped (2026-07-22)
 
-1. Owner: create GitHub repo (e.g. `agentscript-nvim`), push this folder.
-   `scratch/` is gitignored except `package.json` + `lsp-smoke.mjs`
-   (reproduce with: `cd scratch && npm install`, clone nvim-lspconfig, download
-   stylua — only needed for the test suites).
-2. File the lsp-server packaging bug at github.com/salesforce/agentscript
-   using `upstream/agentscript-bug-report.md` (new issue cross-referencing
-   #71/#72, or a comment on #71 — doc explains the trade-off).
-3. Fork neovim/nvim-lspconfig, copy `lsp/agentscript.lua`, `make lint`, open
-   draft PR with `upstream/PR_DESCRIPTION.md` title/body, linking the bug from
-   step 2.
-4. When Salesforce republishes fixed packages: bump/drop `M.PINS` in
-   `lua/agentscript-nvim/install.lua` and re-run all three tests.
-5. Optional later: nvim-treesitter parser entry for
-   `@sf-agentscript/parser-tree-sitter` (would supersede the fallback syntax).
+1. **Repo is live (public):** https://github.com/Booyaka101/agentscript-nvim
+   (`main` pushed). `scratch/` is gitignored except `package.json` +
+   `lsp-smoke.mjs` + `linux/run-tests.sh` (reproduce the test tooling with:
+   `cd scratch && npm install`, clone nvim-lspconfig, download stylua/zig).
+2. **lsp-server packaging bug filed:** salesforce/agentscript#73 —
+   https://github.com/salesforce/agentscript/issues/73 . Written to the repo's
+   `bug_report.md` template (Description / Steps / Expected / Actual /
+   Environment / Minimal Reproduction / Additional Context); cross-references
+   #71/#72 and #35/#40. Re-verified live on npm the same day (lsp-server still
+   2.2.30 latest; dialect@2.13.4 still pins language@2.5.4; language@2.8.4
+   exists, latest 2.19.3). `bug` label left to maintainer triage (external
+   contributors can't set labels).
+3. **nvim-lspconfig PR (draft):** neovim/nvim-lspconfig#4483 —
+   https://github.com/neovim/nvim-lspconfig/pull/4483 . Commit `feat: agentscript`
+   (their `feat: <server>` convention), single file `lsp/agentscript.lua` off
+   latest `master`, stylua-clean, links the bug above. Opened as draft per
+   CONTRIBUTING.
+
+## Remaining
+
+- Flip PR #4483 from draft to ready-for-review once you're happy with it.
+- When Salesforce republishes fixed packages (watch #73): bump/drop `M.PINS` in
+  `lua/agentscript-nvim/install.lua` and re-run all three tests.
+- Optional later: nvim-treesitter parser entry for
+  `@sf-agentscript/parser-tree-sitter` (would supersede the fallback syntax).

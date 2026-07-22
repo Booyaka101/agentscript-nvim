@@ -131,12 +131,16 @@ scratch/                   test tooling: server install, nvim-lspconfig clone,
                            grammar sources, Linux runner (mostly gitignored)
 ```
 
-## First distribution step
+## Upstream status
 
-Open the **nvim-lspconfig PR**: copy `lsp/agentscript.lua` into a fork of
-`neovim/nvim-lspconfig`, run `make lint`, and open a draft PR using the title
-and body in `upstream/PR_DESCRIPTION.md` (it cites the July 13, 2026 legacy
-Agentforce Builder retirement). Ideally file the packaging bug at
-salesforce/agentscript first (`upstream/agentscript-bug-report.md`) — being
-the person who found and worked around the launch-week packaging bug is the
-credibility hook for both the PR and this plugin's announcement post.
+- **nvim-lspconfig config PR (draft):**
+  [neovim/nvim-lspconfig#4483](https://github.com/neovim/nvim-lspconfig/pull/4483)
+  adds `lsp/agentscript.lua` upstream (`feat: agentscript`).
+- **Launch-week packaging bug:**
+  [salesforce/agentscript#73](https://github.com/salesforce/agentscript/issues/73)
+  reports the `@sf-agentscript/lsp-server@2.2.30` startup crash and the verified
+  npm-`overrides` workaround that `:AgentScriptInstall` applies. Once Salesforce
+  republishes with `@sf-agentscript/language >= 2.8.4`, the plain
+  `agentscript-lsp` / npx paths heal on their own.
+
+The full text for both submissions lives in `upstream/`.
