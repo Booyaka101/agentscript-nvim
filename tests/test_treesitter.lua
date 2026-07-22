@@ -39,13 +39,28 @@ if not ts.available() then
   if not have_system_cc then
     local zig = vim.fn.glob(vim.fs.joinpath(root, 'scratch', 'zig-extract', '*', 'zig.exe'))
     if zig == '' then
-      -- Bootstrap: extract the pre-downloaded portable zig (bsdtar reads zip).
+      -- Bootstrap: extract the pre-downloaded portable zig.
       local zip = vim.fs.joinpath(root, 'scratch', 'zig.zip')
       assert(vim.uv.fs_stat(zip), 'no C compiler on PATH and no scratch zig.zip; download zig first')
       local dest = vim.fs.joinpath(root, 'scratch', 'zig-extract')
       vim.fn.mkdir(dest, 'p')
       print('extracting portable zig ...')
+      -- `tar` reads zip only with a libarchive/bsdtar build (Windows System32,
+      -- macOS, most Linux). Under Git Bash on Windows it can resolve to GNU tar,
+      -- which cannot read zip and treats `D:` as a remote host — fall back to
+      -- PowerShell's Expand-Archive there.
       local res = vim.system({ 'tar', '-xf', zip, '-C', dest }):wait()
+      if res.code ~= 0 and vim.fn.has('win32') == 1 then
+        res = vim
+          .system({
+            'powershell',
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            ("Expand-Archive -LiteralPath '%s' -DestinationPath '%s' -Force"):format(zip, dest),
+          })
+          :wait()
+      end
       assert(res.code == 0, 'zig extraction failed: ' .. (res.stderr or ''))
       zig = vim.fn.glob(vim.fs.joinpath(dest, '*', 'zig.exe'))
       assert(zig ~= '', 'zig.exe not found after extraction')
