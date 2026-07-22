@@ -1,0 +1,5 @@
+config:
+    agent_name "MissingColonBot"
+
+bogus_block_keyword:
+    whatever

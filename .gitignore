@@ -1,0 +1,11 @@
+scratch/node_modules/
+scratch/package-lock.json
+scratch/nvim-lspconfig/
+scratch/bin/
+scratch/stylua.exe
+scratch/stylua.zip
+scratch/zig.zip
+scratch/zig-extract/
+scratch/ts/
+scratch/linux/nvim-linux-x86_64.tar.gz
+scratch/*.tgz

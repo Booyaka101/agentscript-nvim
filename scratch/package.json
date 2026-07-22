@@ -1,0 +1,6 @@
+﻿{
+  "name": "agentscript-lsp-scratch",
+  "private": true,
+  "dependencies": { "@sf-agentscript/lsp-server": "2.2.30" },
+  "overrides": { "@sf-agentscript/language": "2.8.4" }
+}

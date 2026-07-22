@@ -1,0 +1,26 @@
+# Minimal valid Agent Script file (agentforce dialect), modeled on the
+# upstream hello_world / weather examples.
+
+config:
+    agent_name: "AgentScriptNvimSample"
+    default_agent_user: "sample@example.com"
+
+language:
+    default_locale: "en_US"
+
+system:
+    instructions: "You are a concise assistant that helps users track their orders."
+    messages:
+        welcome: "Hi! Ask me about your order."
+        error: "Sorry, something went wrong."
+
+variables:
+    order_id: mutable string = ""
+        description: "Order the user is asking about"
+
+start_agent order_tracker:
+    description: "Track customer orders"
+
+    reasoning:
+        instructions: ->
+            | Help the user with their order. Be brief.
