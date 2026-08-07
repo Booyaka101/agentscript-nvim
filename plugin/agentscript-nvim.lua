@@ -5,7 +5,7 @@ vim.g.loaded_agentscript_nvim = true
 
 vim.api.nvim_create_user_command('AgentScriptInstall', function()
   require('agentscript-nvim.install').install()
-end, { desc = 'Install a patched @sf-agentscript/lsp-server into stdpath("data")' })
+end, { desc = 'Install a version-verified @sf-agentscript/lsp-server into stdpath("data")' })
 
 vim.api.nvim_create_user_command('AgentScriptTSBuild', function()
   local ok, err = pcall(require('agentscript-nvim.treesitter').build)

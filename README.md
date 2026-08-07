@@ -11,11 +11,12 @@ What you get:
   detection of the upstream `# @dialect:` header.
 - **LSP integration** with the official `agentscript-lsp` server — diagnostics,
   completions, hover, go-to-definition, references, rename, symbols, code
-  actions, semantic tokens. Ships the same `lsp/agentscript.lua` config file
-  prepared for upstream [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)
-  (see `upstream/PR_DESCRIPTION.md`).
+  actions, semantic tokens. The same `lsp/agentscript.lua` config file is
+  merged upstream in [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)
+  ([#4483](https://github.com/neovim/nvim-lspconfig/pull/4483)).
 - **`:AgentScriptInstall`** — one-command managed server install into
-  `stdpath('data')` that works around a real upstream packaging bug (below).
+  `stdpath('data')` that installs the currently published server and
+  **verifies it actually starts** before trusting it (below).
 - **Fallback syntax highlighting** (`syntax/agentscript.vim`) with the real
   language keywords, so `.agent` files are readable even without the LSP.
 
@@ -50,29 +51,45 @@ run `:AgentScriptInstall` and reopen the buffer. `:LspInfo` (or
 
 ### Why `:AgentScriptInstall` instead of plain `npm install -g`?
 
-The currently published `@sf-agentscript/lsp-server@2.2.30` **crashes on
-startup** (`variantMatch is not a function`): `agentforce-dialect@2.13.4` was
-published with a stale exact pin on `@sf-agentscript/language@2.5.4`, one day
-before the `language@2.8.4` release that actually contains the API it uses.
-`:AgentScriptInstall` installs the server with a verified npm `overrides` fix
-(`@sf-agentscript/language` → `2.8.4`). The same publish-pipeline defect is
-already reported upstream for a sibling package
-([salesforce/agentscript#71](https://github.com/salesforce/agentscript/issues/71));
-ready-to-file text for the lsp-server case is in
-`upstream/agentscript-bug-report.md`. Once Salesforce republishes, the plain
-`agentscript-lsp` / npx paths (which the plugin also supports) heal on their
-own.
+Because it **verifies instead of trusting**. A plain `npm install -g` gives you
+whatever is published right now, sight unseen — and Agent Script's launch week
+proved that can be a server that doesn't start: `lsp-server@2.2.30` crashed at
+import (`variantMatch is not a function`) because `agentforce-dialect@2.13.4`
+shipped with a stale exact pin on `@sf-agentscript/language@2.5.4`
+([salesforce/agentscript#73](https://github.com/salesforce/agentscript/issues/73),
+filed by this project). Upstream's `2.2.96` (2026-07-24) restructured the
+dependency tree and bumps that pair in lockstep, which fixes the crash — but
+#73 is still open with no comments, so nothing tells us (or you) when the next
+publish breaks.
+
+`:AgentScriptInstall` therefore measures:
+
+1. resolves the currently published version from the npm registry
+   (`npm view`), installs it with **no** overrides, and
+2. **verifies** it by spawning it and completing a real LSP `initialize`
+   round-trip;
+3. only if that fails does it fall back to the historically verified recipe
+   (`2.2.30` + npm override `@sf-agentscript/language` → `2.8.4`) — applying
+   that override to a current release pre-emptively would *downgrade*
+   `language` by many minor versions, so it is strictly a fallback;
+4. if the registry is unreachable it installs the pinned recipe directly and
+   says so.
+
+The outcome (version, install path, verification result) is recorded in
+`agentscript-nvim-state.json` next to the install and shown by
+`:checkhealth agentscript-nvim`.
 
 ## Server resolution order
 
 1. `opts.cmd` if you set it
-2. the managed `:AgentScriptInstall` install
+2. the managed `:AgentScriptInstall` install (version-verified)
 3. `agentscript-lsp` on `$PATH`
-4. `npx --yes @sf-agentscript/lsp-server --stdio` (currently broken upstream,
-   see above)
+4. `npx --yes @sf-agentscript/lsp-server --stdio` (runs whatever is currently
+   published, unverified)
 
 `:checkhealth agentscript-nvim` reports Node/npm availability, which server
-the plugin resolved, and tree-sitter status.
+the plugin resolved, the managed install's version / install path /
+verification result, and tree-sitter status.
 
 ## Tree-sitter highlighting
 
@@ -94,7 +111,11 @@ nvim -l tests/test_lsp.lua              # filetype rules (.agent, .ascript,
                                         # "# @dialect:" header), highlighting,
                                         # attach, diagnostics, checkhealth,
                                         # + the tree-sitter section
-nvim -l tests/test_install.lua          # managed install into stdpath('data')
+nvim -l tests/test_install.lua          # stubbed install paths (current /
+                                        # fallback / pinned-offline / both-fail,
+                                        # verify crash + timeout; no network),
+                                        # then the real verified install into
+                                        # stdpath('data')
 nvim -l tests/test_upstream_config.lua  # post-merge nvim-lspconfig simulation:
                                         # real clone on rtp, npm-style shim on
                                         # PATH, default PR cmd, :checkhealth
@@ -133,14 +154,20 @@ scratch/                   test tooling: server install, nvim-lspconfig clone,
 
 ## Upstream status
 
-- **nvim-lspconfig config PR (draft):**
+- **nvim-lspconfig: MERGED.**
   [neovim/nvim-lspconfig#4483](https://github.com/neovim/nvim-lspconfig/pull/4483)
-  adds `lsp/agentscript.lua` upstream (`feat: agentscript`).
+  (`feat: agentscript`) was merged on 2026-07-23, so the base `agentscript`
+  config now ships in nvim-lspconfig itself. This plugin layers on top of it:
+  filetype detection for `*.agent` / `*.ascript` / `# @dialect:` headers, the
+  verified managed install, tree-sitter highlighting, and
+  `:checkhealth agentscript-nvim`.
 - **Launch-week packaging bug:**
   [salesforce/agentscript#73](https://github.com/salesforce/agentscript/issues/73)
-  reports the `@sf-agentscript/lsp-server@2.2.30` startup crash and the verified
-  npm-`overrides` workaround that `:AgentScriptInstall` applies. Once Salesforce
-  republishes with `@sf-agentscript/language >= 2.8.4`, the plain
-  `agentscript-lsp` / npx paths heal on their own.
+  (filed by this project) reports the historical
+  `@sf-agentscript/lsp-server@2.2.30` startup crash. Upstream's `2.2.96`
+  release (2026-07-24) restructured the dependency tree and fixes it in
+  practice, but the issue remains open — which is exactly why
+  `:AgentScriptInstall` verifies every install instead of trusting a version
+  number.
 
 The full text for both submissions lives in `upstream/`.

@@ -1,5 +1,10 @@
 # nvim-lspconfig PR: add `agentscript` (Salesforce Agent Script)
 
+> **Historical record.** This PR was submitted as
+> [neovim/nvim-lspconfig#4483](https://github.com/neovim/nvim-lspconfig/pull/4483)
+> and **merged on 2026-07-23** — the config now ships in nvim-lspconfig.
+> The text below is preserved as filed.
+
 The file to submit is this repo's [`lsp/agentscript.lua`](../lsp/agentscript.lua) —
 it drops into nvim-lspconfig's `lsp/` directory unchanged. (nvim-lspconfig
 migrated from `lua/lspconfig/configs/*.lua` to `lsp/*.lua` `vim.lsp.Config`

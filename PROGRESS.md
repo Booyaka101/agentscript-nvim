@@ -1,111 +1,76 @@
 # PROGRESS — agentscript-nvim
 
-Status: **MVP complete, hardened, cross-platform verified** (2026-07-22).
-All local verification done — including the Windows tree-sitter build (below).
-Remaining work is distribution only (repo push + upstream submissions).
+Status: **v0.2.0 — verified-install upgrade complete** (2026-08-07).
+v0.1.0 (2026-07-22) shipped the MVP; see CHANGELOG.md. Repo is live at
+https://github.com/Booyaka101/agentscript-nvim (published, has users).
 
-## Phase 0 verification (all confirmed by direct fetch/run)
+## v0.2.0 (2026-08-07): pin → measurement
 
-- salesforce/agentscript exists, Apache 2.0, 258★; LSP + tree-sitter + VS Code
-  extension are real. Upstream registers **only `.agent`** (language id
-  `agentscript`); `.ascript` from the brief does not exist upstream (kept as an
-  optional extra in the plugin only).
-- Real npm scope is **`@sf-agentscript/*`** — the brief's `@agentscript/lsp`
-  does not exist. Server = `@sf-agentscript/lsp-server` (bin `agentscript-lsp`,
-  usage `agentscript-lsp --stdio`; no `--version`/`--help` flags).
-- **Upstream packaging bug found:** published `lsp-server@2.2.30` crashes at
-  import (`variantMatch is not a function`) because `agentforce-dialect@2.13.4`
-  pins `language@2.5.4` but needs ≥ 2.8.4. Verified fix: npm override
-  `@sf-agentscript/language → 2.8.4`. Same publish-pipeline defect is already
-  reported upstream for the `agentforce` SDK package (issue #71, plus earlier
-  #35/#40 and CI-fix PR #72) — but NOT for lsp-server; our report is new.
-- nvim-lspconfig now takes configs as **`lsp/<name>.lua`** (`vim.lsp.Config`,
-  `root_markers`); `lua/lspconfig/configs/` + `tsserver.lua` from the brief are
-  obsolete. **No agentscript PR/issue exists in nvim-lspconfig** (searched
-  2026-07-22) — the niche is open.
-- Launch dates verified: Agent Script GA + legacy Agentforce Builder retired
-  the week of **July 13, 2026** (help.salesforce.com article 005232662).
-- Local env: Neovim 0.12.2, Node 22.18, npm OK. No cost barriers.
+### Phase 0 re-verification (all confirmed by direct fetch on 2026-08-07)
 
-## VERIFIED working (ran on this machine, real server, real data)
+- npm registry: `@sf-agentscript/lsp-server` latest = **2.2.96**, published
+  2026-07-24T05:29:09Z; deps `{ vscode-languageserver ^9.0.1, lsp 2.5.24,
+  types 0.2.3, parser 4.0.7 }`; `lsp@2.5.24` → `language@2.20.0` +
+  `agentforce-dialect@2.37.0` (the crash pair bumped in lockstep).
+- nvim-lspconfig **PR #4483 MERGED** 2026-07-23T10:42:40Z ("feat:
+  agentscript"); upstream `lsp/agentscript.lua` is config-only.
+- salesforce/agentscript#73 still **open, 0 comments** — upstream will not
+  tell us when the packaging bug class recurs; hence verification.
 
-- `nvim -l tests/test_lsp.lua` → ALL PASS: `.agent`/`.ascript`/`# @dialect:`
-  filetype rules, fallback syntax (group `agentscriptBlock` on `config`), LSP
-  attach, 2 ERROR diagnostics on `broken.agent`, 0 errors + 1 INFO
-  unused-variable lint on `sample.agent`, `:checkhealth agentscript-nvim`.
-- `nvim -l tests/test_install.lua` → managed install into
-  `C:/Users/cbosc/AppData/Local/nvim-data/agentscript-nvim/server` works
-  (cmd.exe/npm on Windows) and wins cmd resolution.
-- `nvim -l tests/test_upstream_config.lua` → **post-merge simulation**: real
-  nvim-lspconfig clone on rtp (only), `agentscript-lsp` as npm-style `.cmd`
-  shim on PATH, DEFAULT PR cmd attaches + publishes diagnostics, client shows
-  in `:checkhealth vim.lsp` (`:LspInfo`'s alias; on Nvim 0.12+ lspconfig
-  defers to the core `:lsp` command). Proves bare `.cmd` spawn works on
-  Windows — no lspconfig#3704 workaround needed in the PR file (the plugin
-  still exepath-resolves PATH installs as belt-and-braces).
-- `lsp/agentscript.lua` passes `stylua --check` with nvim-lspconfig's own
-  `.stylua.toml` (exit 0); all repo Lua formatted with the same config.
-- Raw LSP smoke test (`scratch/lsp-smoke.mjs`) → initialize + publishDiagnostics
-  over stdio confirmed independently of Neovim.
-- **Linux, full suite (node:22-bookworm container, Neovim 0.12.4, gcc 12):**
-  `LINUX SUITE: ALL PASSED` — tree-sitter grammar builds from the official
-  `@sf-agentscript/parser-tree-sitter` sources and all 7 tree-sitter checks
-  pass (parser loads, highlighter active, official highlights.scm yields
-  captures, sample parses clean, broken has an ERROR node); managed install
-  works against the live registry from Linux; all LSP checks pass; the
-  post-merge nvim-lspconfig simulation passes with a unix shell shim (so both
-  the Windows `.cmd` and unix script shim branches are now exercised).
-  Runner: `scratch/linux/run-tests.sh` via
-  `docker run --rm -v "<repo>:/work" node:22-bookworm bash /work/scratch/linux/run-tests.sh`.
-- Tree-sitter is wired into the plugin: `:AgentScriptTSBuild` (npm pack →
-  C compile → parser + official queries into stdpath('data')),
-  auto `vim.treesitter.start()` on FileType when built, checkhealth reports it.
-  Fixed a real bug found by the Linux run: nil-leading table literal made
-  ipairs skip all compiler candidates in `find_compiler`.
-- Naming risk closed with evidence: GitHub Linguist, Helix `languages.toml`
-  and Neovim core `filetype.lua` all have NO entry for `.agent`/Agent Script
-  (checked 2026-07-22), so upstream's language id `agentscript` is the only
-  precedent; rationale section added to the PR description.
+### What changed
 
-## Pending (none)
+- `install.lua`: `resolve_latest()` (async `npm view`, 15s timeout),
+  `verify()` (spawn `node dist/index.js --stdio`, framed LSP `initialize`,
+  wait for `result.capabilities`, 15s timeout, always kills the child,
+  captures the stderr Error line), `state()`, and a restructured `install()`:
+  current-version-no-overrides → verify → only-on-failure fallback to
+  `M.PINS` (2.2.30 + language@2.8.4 override) → verify; offline ⇒
+  pinned-offline. Outcome written to `<dir>/agentscript-nvim-state.json`
+  `{ version, path=current|fallback|pinned-offline, verified, reason,
+  installedAt }`. Both-fail ⇒ reported as an error with both stderr details.
+- `health.lua`: reports the state file (version/path/verified); the npx
+  advice no longer asserts an unmeasured crash and cites #73 (not #71,
+  which is a different package's bug).
+- `init.lua`: npx hint rewritten — npx = "currently published, unverified".
+- README: PR #4483 marked merged; "Why :AgentScriptInstall" rewritten
+  around verification-not-pinning; CHANGELOG.md created (0.2.0 + 0.1.0).
+- Tests: `tests/test_install.lua` Part 1 is network-free via
+  `tests/fake_npm.js` + `stub_server_{ok,crash,hang}.js` — covers current
+  adopted / fallback adopted / pinned-offline / both-fail (+ state file
+  each time) and `verify()` crash + timeout; Part 2 is the real install.
 
-- **Windows tree-sitter build run — DONE (2026-07-22).** Built with portable
-  zig 0.16.0 (`zig cc`) → `agentscript.dll` into `stdpath('data')`;
-  `nvim -l tests/test_treesitter.lua` → `TREESITTER TEST PASSED`, and
-  `nvim -l tests/test_lsp.lua` → `ALL TESTS PASSED` (tree-sitter section
-  included). stylua check re-run clean (exit 0). Note: the staged
-  `scratch/zig.zip` from the prior session was a truncated download; it was
-  re-fetched (97 MB, `zig-x86_64-windows-0.16.0.zip`) and pre-extracted to
-  `scratch/zig-extract/` (both gitignored). Test-harness caveat for future
-  fresh-clone Windows runs with no system C compiler: the extraction step
-  shells out to `tar`, which resolves to MSYS/GNU tar under Git Bash (can't
-  read zip / mishandles `D:` paths) — run the test from PowerShell (native
-  bsdtar) or pre-extract zig into `scratch/zig-extract/` first.
+## VERIFIED working (ran on this machine, 2026-08-07)
 
-## Shipped (2026-07-22)
+- `nvim -l tests/test_install.lua` → ALL PASS. Real end-to-end:
+  **2.2.96 resolved from the live registry, installed with NO overrides,
+  verified — "initialize answered in 538ms"**, state file
+  `{ version="2.2.96", path="current", verified=true }`; managed install
+  wins cmd resolution. Confirms the 0.1.0 crash is fixed upstream and the
+  pin is correctly demoted to fallback.
+- `nvim -l tests/test_lsp.lua` → ALL TESTS PASSED against the real 2.2.96
+  server (2 ERROR diagnostics on broken.agent; sample.agent 0 errors — note
+  2.2.96 adds a new WARN `default_agent_user is deprecated` lint, harmless).
+- `nvim -l tests/test_upstream_config.lua` → PASSED (post-merge simulation).
+- `nvim -l tests/test_treesitter.lua` → PASSED.
+- `stylua --check` (nvim-lspconfig's `.stylua.toml`) → exit 0 on
+  lua/ lsp/ plugin/ tests/.
+- Acceptance greps: every remaining `2.2.30` is the documented fallback;
+  README has no "draft" for #4483; no Lua text claims the published server
+  currently crashes.
 
-1. **Repo is live (public):** https://github.com/Booyaka101/agentscript-nvim
-   (`main` pushed). `scratch/` is gitignored except `package.json` +
-   `lsp-smoke.mjs` + `linux/run-tests.sh` (reproduce the test tooling with:
-   `cd scratch && npm install`, clone nvim-lspconfig, download stylua/zig).
-2. **lsp-server packaging bug filed:** salesforce/agentscript#73 —
-   https://github.com/salesforce/agentscript/issues/73 . Written to the repo's
-   `bug_report.md` template (Description / Steps / Expected / Actual /
-   Environment / Minimal Reproduction / Additional Context); cross-references
-   #71/#72 and #35/#40. Re-verified live on npm the same day (lsp-server still
-   2.2.30 latest; dialect@2.13.4 still pins language@2.5.4; language@2.8.4
-   exists, latest 2.19.3). `bug` label left to maintainer triage (external
-   contributors can't set labels).
-3. **nvim-lspconfig PR (draft):** neovim/nvim-lspconfig#4483 —
-   https://github.com/neovim/nvim-lspconfig/pull/4483 . Commit `feat: agentscript`
-   (their `feat: <server>` convention), single file `lsp/agentscript.lua` off
-   latest `master`, stylua-clean, links the bug above. Opened as draft per
-   CONTRIBUTING.
+## Shipped history (v0.1.0, 2026-07-22)
 
-## Remaining
+1. Repo public: https://github.com/Booyaka101/agentscript-nvim
+2. Bug filed: salesforce/agentscript#73 (lsp-server 2.2.30 startup crash).
+3. nvim-lspconfig PR #4483 — **merged 2026-07-23**.
 
-- Flip PR #4483 from draft to ready-for-review once you're happy with it.
-- When Salesforce republishes fixed packages (watch #73): bump/drop `M.PINS` in
-  `lua/agentscript-nvim/install.lua` and re-run all three tests.
+## Remaining / next steps
+
+- Owner: push `main` + tag `v0.2.0` to GitHub from the phone
+  (`git push origin main --tags`). Nothing else blocks release.
 - Optional later: nvim-treesitter parser entry for
-  `@sf-agentscript/parser-tree-sitter` (would supersede the fallback syntax).
+  `@sf-agentscript/parser-tree-sitter`; if #73 gets fixed/closed upstream,
+  consider dropping `M.PINS` entirely in a future release (the verify
+  machinery stays regardless — that is the moat).
+- Windows fresh-clone tree-sitter caveat from v0.1.0 still applies (run
+  tests from PowerShell or pre-extract zig into `scratch/zig-extract/`).

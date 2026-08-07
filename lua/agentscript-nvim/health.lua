@@ -36,11 +36,29 @@ function M.check()
   local msg = 'server: ' .. SOURCE_LABEL[source] .. ' -> ' .. table.concat(cmd, ' ')
   if source == 'npx' then
     health.warn(msg, {
-      'the published @sf-agentscript/lsp-server currently crashes (upstream dependency-pin bug, salesforce/agentscript#71)',
-      'run :AgentScriptInstall for a patched local install',
+      'npx runs whatever @sf-agentscript/lsp-server is currently published, unverified',
+      'run :AgentScriptInstall for a version-verified local install (historical startup-crash background: salesforce/agentscript#73)',
     })
   else
     health.ok(msg)
+  end
+
+  local install = require('agentscript-nvim.install')
+  local state = install.state()
+  if state then
+    local line = ('managed install: %s via %s path — %s (%s)'):format(
+      tostring(state.version),
+      tostring(state.path),
+      state.verified and 'verification passed' or 'verification FAILED',
+      tostring(state.reason)
+    )
+    if state.verified then
+      health.ok(line)
+    else
+      health.warn(line, { 'run :AgentScriptInstall to retry' })
+    end
+  else
+    health.info('managed install: never run (:AgentScriptInstall installs a version-verified server)')
   end
 
   local ts = require('agentscript-nvim.treesitter')

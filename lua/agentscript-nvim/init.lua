@@ -39,11 +39,11 @@ end
 
 --- Resolve the LSP command, in priority order:
 --- 1. opts.cmd (explicit override)
---- 2. managed install from :AgentScriptInstall (patched against the upstream
----    dependency-pin bug, see install.lua)
+--- 2. managed install from :AgentScriptInstall (version-verified at install
+---    time, see install.lua)
 --- 3. `agentscript-lsp` on PATH (global npm install)
---- 4. `npx --yes @sf-agentscript/lsp-server` (works only once upstream fixes
----    its published pins; kept as a self-healing fallback)
+--- 4. `npx --yes @sf-agentscript/lsp-server` (runs whatever is currently
+---    published, unverified; kept as a zero-setup fallback)
 ---@return string[]? cmd, string source
 function M.resolve_cmd(opts)
   if opts.cmd then
@@ -87,9 +87,9 @@ local function maybe_hint(source)
       )
     else
       vim.notify(
-        'agentscript-nvim: agentscript-lsp not installed; falling back to npx. '
-          .. 'Note: the published @sf-agentscript/lsp-server currently crashes due to an '
-          .. 'upstream dependency pin — run :AgentScriptInstall for a patched local install.',
+        'agentscript-nvim: agentscript-lsp not installed; falling back to npx, which runs '
+          .. 'whatever @sf-agentscript/lsp-server is currently published, unverified — '
+          .. 'run :AgentScriptInstall for a version-verified local install.',
         vim.log.levels.WARN
       )
     end
