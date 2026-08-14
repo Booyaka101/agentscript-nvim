@@ -1,0 +1,44 @@
+name: Bug report
+description: Something didn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, and what came back.
+      placeholder: |
+        :checkhealth agentscript
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: agentscript-nvim version
+      description: The commit or tag you have checked out.
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Neovim version and OS
+      description: Output of `nvim --version | head -1`, plus your OS.
+      placeholder: NVIM v0.11.2 on Windows 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: minimal
+    attributes:
+      label: Minimal `init.lua` that reproduces it
+      description: Start from `nvim -u NONE` and add only what is needed. Reports with a full config attached take much longer to get through.
+      render: lua

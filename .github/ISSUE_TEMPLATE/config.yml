@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Agent Script language and spec
+    url: https://github.com/salesforce/agentscript
+    about: Questions about the language itself, or about the LSP server's own behaviour.
+  - name: Neovim LSP documentation
+    url: https://neovim.io/doc/user/lsp.html
+    about: How Neovim wires up language servers, `vim.lsp` settings and `:checkhealth`.
+  - name: Security issue
+    url: https://github.com/Booyaka101/agentscript-nvim/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue.

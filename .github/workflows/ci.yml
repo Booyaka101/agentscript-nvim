@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One run per branch. A second push supersedes the first instead of queueing
+# behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22 # tests/fake_npm.js and the stub servers run under it
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      # Only test_install runs here. The other three need a developer machine:
+      # test_treesitter and test_lsp build the parser out of scratch/ts/, which
+      # is gitignored, and test_upstream_config needs an agentscript-lsp shim on
+      # PATH. Both fail the same way on a clean checkout, CI or not.
+      - run: nvim -l tests/test_install.lua
