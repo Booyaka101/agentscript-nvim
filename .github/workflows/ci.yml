@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One run per branch. A second push supersedes the first instead of queueing
+# behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22 # tests/fake_npm.js and the stub servers run under it
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      # Each script is standalone and exits non-zero on failure, so they run as
+      # separate steps: a red X names the file without reading the log.
+      - run: nvim -l tests/test_treesitter.lua
+      - run: nvim -l tests/test_lsp.lua
+      - run: nvim -l tests/test_upstream_config.lua
+      - run: nvim -l tests/test_install.lua
