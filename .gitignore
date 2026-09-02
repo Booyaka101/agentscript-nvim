@@ -9,3 +9,6 @@ scratch/zig-extract/
 scratch/ts/
 scratch/linux/nvim-linux-x86_64.tar.gz
 scratch/*.tgz
+
+# Local build notes, not for the public repo
+PROGRESS.md
