@@ -46,28 +46,63 @@ function M.cmd()
   end
 end
 
---- Outcome of the last `:AgentScriptInstall` run, or nil if never installed.
----@return { version: string, path: string, verified: boolean, reason: string, installedAt: string }?
-function M.state()
-  local f = io.open(vim.fs.joinpath(M.dir(), 'agentscript-nvim-state.json'), 'r')
+---@return string?
+function M.read_file(path)
+  local f = io.open(path, 'r')
   if not f then
     return
   end
   local s = f:read('*a')
   f:close()
-  local ok, t = pcall(vim.json.decode, s)
+  return s
+end
+
+--- Decode a JSON object from a file, or nil if missing or malformed.
+--- Shared with treesitter.lua, which keeps its own state file.
+---@return table?
+function M.read_json(path)
+  local ok, t = pcall(vim.json.decode, M.read_file(path))
   if ok and type(t) == 'table' then
     return t
   end
 end
 
+--- Write via a temp file and a rename, so a reader never sees half a file.
+---@return boolean? ok, string? err
+function M.write_file(path, text)
+  local tmp = ('%s.%d.tmp'):format(path, vim.uv.os_getpid())
+  local f, err = io.open(tmp, 'wb')
+  if not f then
+    return nil, err
+  end
+  local ok, werr = f:write(text)
+  f:close()
+  if not ok then
+    os.remove(tmp)
+    return nil, werr
+  end
+  local rok, rerr = vim.uv.fs_rename(tmp, path)
+  if not rok then
+    os.remove(tmp)
+    return nil, rerr
+  end
+  return true
+end
+
+---@return boolean? ok, string? err
+function M.write_json(path, t)
+  return M.write_file(path, vim.json.encode(t))
+end
+
+--- Outcome of the last `:AgentScriptInstall` run, or nil if never installed.
+---@return { version: string, path: string, verified: boolean, reason: string, installedAt: string }?
+function M.state()
+  return M.read_json(vim.fs.joinpath(M.dir(), 'agentscript-nvim-state.json'))
+end
+
 local function write_state(dir, state)
   state.installedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
-  local f = io.open(vim.fs.joinpath(dir, 'agentscript-nvim-state.json'), 'w')
-  if f then
-    f:write(vim.json.encode(state))
-    f:close()
-  end
+  M.write_json(vim.fs.joinpath(dir, 'agentscript-nvim-state.json'), state)
 end
 
 function M.npm_install_cmd()
@@ -79,34 +114,64 @@ function M.npm_install_cmd()
   return cmd
 end
 
+--- vim.system() with a timeout that also holds for npm on Windows. Calls
+--- on_exit(res) on the main loop, once; on timeout res.code is 124 and the
+--- process tree is killed.
+---@param cmd string[]
+---@param opts vim.SystemOpts
+---@param timeout_ms integer
+---@param on_exit fun(res: vim.SystemCompleted)
+function M.system(cmd, opts, timeout_ms, on_exit)
+  local settled = false
+  local timer = assert(vim.uv.new_timer())
+  local function settle(res)
+    if settled then
+      return
+    end
+    settled = true
+    timer:stop()
+    timer:close()
+    vim.schedule(function()
+      on_exit(res)
+    end)
+  end
+  local ok, proc = pcall(vim.system, cmd, opts, settle)
+  if not ok then
+    settle({ code = -1, signal = 0, stdout = '', stderr = tostring(proc) })
+    return
+  end
+  -- Not vim.system's own timeout: on Windows that kills cmd.exe only, and the
+  -- exit callback then waits for npm's node child (~70s offline) to close
+  -- the pipe.
+  timer:start(timeout_ms, 0, function()
+    settle({ code = 124, signal = 0, stdout = '', stderr = ('timed out after %ds'):format(timeout_ms / 1000) })
+    vim.schedule(function()
+      if vim.fn.has('win32') == 1 then
+        pcall(vim.system, { 'taskkill', '/T', '/F', '/PID', tostring(proc.pid) })
+      else
+        pcall(proc.kill, proc, 15)
+      end
+    end)
+  end)
+end
+
+-- A published version, e.g. 3.2.1 or 3.3.0-beta.1.
+M.VERSION_PATTERN = '^%d+%.%d+%.%d+[%w%.%+%-]*$'
+
 --- Ask the npm registry for the currently published version (async, never
---- blocks the UI thread). Calls on_done with the trimmed version string, or
---- nil on any failure (no npm, no network, timeout, unparseable output).
+--- blocks the UI thread). Calls on_done with the version string, or nil on
+--- any failure (no npm, no network, timeout, unparseable output).
 ---@param on_done fun(version: string?)
-function M.resolve_latest(on_done)
-  local cmd = { 'npm', 'view', PKG, 'version', '--json' }
+---@param pkg? string defaults to the language server package
+function M.resolve_latest(on_done, pkg)
+  local cmd = { 'npm', 'view', pkg or PKG, 'version', '--json' }
   if vim.fn.has('win32') == 1 then
     cmd = vim.list_extend({ 'cmd.exe', '/c' }, cmd)
   end
-  local ok = pcall(vim.system, cmd, { timeout = M.RESOLVE_TIMEOUT_MS }, function(res)
-    local version
-    if res.code == 0 and res.stdout then
-      local s = vim.trim(res.stdout)
-      local okj, decoded = pcall(vim.json.decode, s)
-      local v = (okj and type(decoded) == 'string' and decoded) or s:match('"(%d[^"]*)"') or s
-      if type(v) == 'string' and v:match('^%d+%.%d+%.%d+') then
-        version = v
-      end
-    end
-    vim.schedule(function()
-      on_done(version)
-    end)
+  M.system(cmd, {}, M.RESOLVE_TIMEOUT_MS, function(res)
+    local ok, v = pcall(vim.json.decode, vim.trim(res.stdout or ''))
+    on_done(res.code == 0 and ok and type(v) == 'string' and v:match(M.VERSION_PATTERN) and v or nil)
   end)
-  if not ok then
-    vim.schedule(function()
-      on_done(nil)
-    end)
-  end
 end
 
 --- Verify an installed server by speaking LSP to it: spawn `node <js_path>

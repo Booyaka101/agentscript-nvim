@@ -17,6 +17,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -26,8 +27,10 @@ jobs:
         with:
           neovim: true
           version: stable
-      # Only test_install runs here. The other three need a developer machine:
-      # test_treesitter and test_lsp build the parser out of scratch/ts/, which
-      # is gitignored, and test_upstream_config needs an agentscript-lsp shim on
-      # PATH. Both fail the same way on a clean checkout, CI or not.
+      # test_treesitter fetches the published grammar sources with npm pack
+      # and builds them with the runner's gcc. test_lsp installs the real
+      # server into scratch/ and runs test_treesitter again inside the same
+      # session. test_upstream_config needs an nvim-lspconfig clone.
       - run: nvim -l tests/test_install.lua
+      - run: nvim -l tests/test_treesitter.lua
+      - run: nvim -l tests/test_lsp.lua

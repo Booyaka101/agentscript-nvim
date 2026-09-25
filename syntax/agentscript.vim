@@ -12,7 +12,7 @@ syn keyword agentscriptBlock start_agent reasoning before_reasoning after_reason
 syn keyword agentscriptField description instructions messages welcome error agent_name default_agent_user default_locale
 
 " Procedural keywords
-syn keyword agentscriptKeyword set run with transition if else
+syn keyword agentscriptKeyword set run with transition if else escalate render show_and_return
 syn keyword agentscriptModifier mutable
 
 " Primitive types

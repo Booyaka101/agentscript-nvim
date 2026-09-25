@@ -7,14 +7,16 @@ vim.api.nvim_create_user_command('AgentScriptInstall', function()
   require('agentscript-nvim.install').install()
 end, { desc = 'Install a version-verified @sf-agentscript/lsp-server into stdpath("data")' })
 
-vim.api.nvim_create_user_command('AgentScriptTSBuild', function()
-  local ok, err = pcall(require('agentscript-nvim.treesitter').build)
-  if ok then
-    vim.notify('agentscript-nvim: tree-sitter parser built. Reopen your .agent buffer.', vim.log.levels.INFO)
-  else
-    vim.notify('agentscript-nvim: tree-sitter build failed: ' .. tostring(err), vim.log.levels.ERROR)
-  end
-end, { desc = 'Build + install the official AgentScript tree-sitter parser and queries' })
+vim.api.nvim_create_user_command('AgentScriptTSBuild', function(args)
+  require('agentscript-nvim.treesitter').install(
+    nil,
+    { version = args.args ~= '' and args.args or nil, force = args.bang }
+  )
+end, {
+  nargs = '?',
+  bang = true,
+  desc = 'Build + verify the published AgentScript tree-sitter grammar (or [version]) into stdpath("data")',
+})
 
 -- Auto-setup with defaults; call require('agentscript-nvim').setup({...}) from
 -- your config to override (setup is idempotent and re-applies options).

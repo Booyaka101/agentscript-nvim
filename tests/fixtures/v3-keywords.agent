@@ -1,0 +1,8 @@
+topic test:
+   instructions: ->
+      if @var.count is not None and not @var.done:
+         show_and_return: @var.items[1:3]
+      if @var.kind is "card":
+         render: @var.card
+      when @var.status
+      escalate

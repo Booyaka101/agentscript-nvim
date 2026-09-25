@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.3.0 — 2026-09-25
+
+The grammar gets the same treatment the server got in 0.2.0.
+`:AgentScriptTSBuild` always built `@sf-agentscript/parser-tree-sitter@2.7.2`
+(2026-07-21), while upstream moved on to 3.2.1 (2026-08-20), which parses
+`escalate`, `render`, `show_and_return` and slice expressions. Under 2.7.2 a
+plain `escalate` parses as an ERROR node and highlights as a variable.
+
+### Added
+
+- `:AgentScriptTSBuild` resolves the currently published grammar
+  (`npm view`), builds it and verifies it before moving it into place: the
+  parser loads under a scratch language name, its `highlights.scm` compiles
+  against it, and an `escalate` snippet from upstream's corpus parses without
+  an ERROR node. The build runs in the background.
+- If the published grammar fails to download, compile or verify, a parser
+  that is already built is kept and the rejection is recorded for
+  `:checkhealth`. The pinned 2.7.2 is built only when there is nothing to
+  keep (`fallback`). With the registry unreachable the same rule applies, and
+  2.7.2 comes from npm's cache (`npm pack --offline`, `pinned-offline`).
+- `:AgentScriptTSBuild <version>` builds one exact version, skipping
+  resolution. It never falls back: if the version does not build or verify,
+  the working parser stays in place.
+- `:AgentScriptTSBuild` is a no-op when the published version is already
+  built; `:AgentScriptTSBuild!` rebuilds it.
+- Build outcome recorded in `ts-state.json` (`version`,
+  `path = current|fallback|pinned-offline|requested`, `verified`, `reason`,
+  `builtAt`, and `rejected` after a failed update); `:checkhealth
+  agentscript-nvim` reports it, e.g.
+  `tree-sitter grammar: 3.2.1 via current path, verification passed`, and
+  warns on `fallback`, `pinned-offline` and a rejected update. Parsers built
+  by 0.2.0 still load and are reported as version unknown.
+- Keyword captures for `escalate`, `render`, `show_and_return`, `when`, `is`,
+  `is not` and `not`, which upstream's `highlights.scm` leaves uncaptured.
+  Each is appended only if the built grammar defines the node, so older
+  grammars still get a query that compiles.
+- `escalate`, `render` and `show_and_return` in the fallback regex syntax.
+- `tests/fixtures/v3.agent` and `v3-keywords.agent`, and a rewritten
+  `test_treesitter.lua` that builds the real 3.2.1 and 2.7.2 grammars with
+  resolution stubbed out. CI now runs it and `test_lsp`.
+
+### Changed
+
+- Parsers are written to `parser/agentscript-<version>.<so|dll>` and their
+  queries to `runtime/<version>/`. Windows won't overwrite or delete a loaded
+  library, and a session keeps the queries of the parser it loaded, so a
+  rebuild never changes what a running Neovim is using. The build message
+  asks for a restart when the session already loaded a different parser.
+  Old files are removed by a later `:AgentScriptTSBuild`, including one
+  with nothing to rebuild, once nothing holds them.
+- Build failures show one line: npm's relevant error, or the compiler's
+  first `error:` line, instead of the full output.
+- `:AgentScriptTSBuild` no longer blocks the editor. Downloads and the
+  compiler have timeouts, and only one build runs per session.
+
+### Fixed
+
+- The 15s `npm view` timeout did not hold on Windows: it killed `cmd.exe`,
+  and the result then waited for npm's own node process to give up (about
+  70s with no network). It now settles on time and kills the whole process
+  tree. This also affected `:AgentScriptInstall`.
+- Unpacking the grammar with Git Bash's GNU `tar` on PATH failed, because it
+  reads `D:/...` as a remote host.
+- The state files are written atomically.
+
 ## 0.2.0 — 2026-08-07
 
 The pin becomes a measurement. `@sf-agentscript/lsp-server@2.2.96`
