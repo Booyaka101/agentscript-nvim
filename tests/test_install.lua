@@ -130,6 +130,56 @@ check(
   tostring(vdetail)
 )
 
+-- The real resolve_latest against a fake npm on PATH. The timeout has to hold
+-- on Windows too, where npm runs under cmd.exe.
+local fakebin = vim.fs.joinpath(tmp_root, 'fakebin')
+vim.fn.mkdir(fakebin, 'p')
+local view_js = vim.fs.joinpath(fakebin, 'view.js')
+local function write(path, text)
+  local f = assert(io.open(path, 'w'))
+  f:write(text)
+  f:close()
+end
+write(view_js, "const v = process.env.FAKE_VIEW; if (v === 'hang') setTimeout(() => {}, 60000); else console.log(v);\n")
+local is_win = vim.fn.has('win32') == 1
+if is_win then
+  write(vim.fs.joinpath(fakebin, 'npm.cmd'), '@echo off\r\nnode "' .. view_js .. '" %*\r\n')
+else
+  write(vim.fs.joinpath(fakebin, 'npm'), '#!/bin/sh\nexec node "' .. view_js .. '" "$@"\n')
+  vim.uv.fs_chmod(vim.fs.joinpath(fakebin, 'npm'), 493) -- 0755
+end
+local saved_path, saved_timeout = vim.env.PATH, install.RESOLVE_TIMEOUT_MS
+vim.env.PATH = fakebin .. (is_win and ';' or ':') .. saved_path
+local function resolve(view)
+  vim.env.FAKE_VIEW = view
+  local calls, got = 0, nil
+  local t0 = vim.uv.hrtime()
+  real_resolve(function(v)
+    calls, got = calls + 1, v
+  end)
+  vim.wait(20000, function()
+    return calls > 0
+  end, 50)
+  local ms = (vim.uv.hrtime() - t0) / 1e6
+  vim.wait(300, function()
+    return calls > 1
+  end, 50)
+  return got, calls, ms
+end
+local got = resolve('"3.2.1"')
+check(got == '3.2.1', 'resolve_latest: reads the version npm prints', tostring(got))
+got = resolve('"<html>oops</html>"')
+check(got == nil, 'resolve_latest: rejects output that is not a version', tostring(got))
+install.RESOLVE_TIMEOUT_MS = 1500
+local calls, ms
+got, calls, ms = resolve('hang')
+check(
+  got == nil and calls == 1 and ms < 6000,
+  'resolve_latest: a hanging npm times out once, on time',
+  ('got=%s calls=%d after %dms'):format(tostring(got), calls, ms)
+)
+install.RESOLVE_TIMEOUT_MS, vim.env.PATH, vim.env.FAKE_VIEW = saved_timeout, saved_path, nil
+
 install.dir, install.npm_install_cmd, install.resolve_latest = real_dir, real_npm, real_resolve
 vim.fn.delete(tmp_root, 'rf')
 

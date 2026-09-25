@@ -32,6 +32,9 @@ assert(vim.uv.fs_stat(server_js), 'run tests/test_lsp.lua first to install the s
 
 -- Fake npm global install: a .cmd shim (Windows) / shell script (unix) on PATH.
 local bin = vim.fs.joinpath(root, 'scratch', 'bin')
+-- scratch/ is shared with the Linux container run; a leftover extensionless
+-- shim would shadow the .cmd one on Windows.
+vim.fn.delete(bin, 'rf')
 vim.fn.mkdir(bin, 'p')
 local is_win = vim.fn.has('win32') == 1
 if is_win then

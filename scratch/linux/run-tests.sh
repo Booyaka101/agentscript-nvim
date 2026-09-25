@@ -2,7 +2,8 @@
 # Full agentscript-nvim test suite inside a Linux container (node:22-bookworm).
 # Expects the repo mounted at /work with:
 #   scratch/linux/nvim-linux-x86_64.tar.gz  (Neovim release build)
-#   scratch/ts/package                      (extracted grammar sources)
+#   scratch/ts/pkg-<version>/package        (grammar sources; test_treesitter
+#                                            fetches them with npm if absent)
 #   scratch/nvim-lspconfig                  (clone, with lsp/agentscript.lua)
 set -e
 export HOME=/tmp/home
@@ -13,7 +14,11 @@ echo "== environment =="
 nvim --version | head -1
 node --version
 gcc --version | head -1
-cd /work
+# Run from a container-local copy: on a Docker Desktop Windows bind mount a
+# file renamed after dlopen stats as ENOENT, which real Linux never does.
+mkdir -p /tmp/w
+tar -C /work --exclude=./scratch/zig-extract --exclude=./scratch/zig.zip --exclude='./tests/tmp-*' -cf - . | tar -C /tmp/w -xf -
+cd /tmp/w
 fail=0
 for t in test_treesitter test_install test_lsp test_upstream_config; do
   echo "== $t =="

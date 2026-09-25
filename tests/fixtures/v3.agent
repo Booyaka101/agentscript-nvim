@@ -1,0 +1,4 @@
+topic test:
+   instructions: ->
+      if @var.escalate_needed:
+         escalate

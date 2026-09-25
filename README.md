@@ -17,6 +17,9 @@ What you get:
 - **`:AgentScriptInstall`** — one-command managed server install into
   `stdpath('data')` that installs the currently published server and
   **verifies it actually starts** before trusting it (below).
+- **`:AgentScriptTSBuild`**: builds the published tree-sitter grammar into
+  `stdpath('data')` and verifies it parses current syntax before using it
+  (below).
 - **Fallback syntax highlighting** (`syntax/agentscript.vim`) with the real
   language keywords, so `.agent` files are readable even without the LSP.
 
@@ -95,12 +98,48 @@ verification result, and tree-sitter status.
 
 Upstream ships the official grammar and highlight queries in
 `@sf-agentscript/parser-tree-sitter` but no Neovim-loadable library.
-`:AgentScriptTSBuild` downloads the package via `npm pack`, compiles the
-grammar with any C compiler on PATH (`cc`/`gcc`/`clang`/`zig`, or `$CC`), and
-installs the parser plus the official `highlights.scm` under `stdpath('data')`.
-Once built, `.agent` buffers use tree-sitter highlighting automatically
-(superseding the fallback regex syntax); without it the fallback syntax keeps
-files readable.
+`:AgentScriptTSBuild` builds one in the background, the same way
+`:AgentScriptInstall` handles the server:
+
+1. `npm view` resolves the published grammar version (3.2.1 as of
+   September 2026).
+2. `npm pack` downloads it and any C compiler on PATH (`cc`/`gcc`/`clang`/`zig`,
+   or `$CC`) compiles it.
+3. The new parser is loaded under a scratch name, its highlights query must
+   compile against it, and an `escalate` statement (3.x syntax) must parse
+   without an ERROR node.
+4. Only then is it moved to
+   `stdpath('data')/agentscript-nvim/ts/parser/agentscript-<version>.so`
+   (`.dll` on Windows), with its queries next to it.
+
+If the published version fails any step (download, compile or verify), the
+parser you already have stays in place and `:checkhealth` shows what was
+rejected and why. The pinned 2.7.2 is built only when there is nothing to
+keep, and `:checkhealth` then warns that you're on the `fallback` path. 2.7.2
+predates `escalate`, `render` and `show_and_return`, so those show up as parse
+errors under it. The same goes for an unreachable registry: an existing parser
+is kept, and with none, 2.7.2 is built from npm's cache (`pinned-offline`).
+
+Running it again when the published version is already built does nothing;
+`:AgentScriptTSBuild!` rebuilds anyway. `:AgentScriptTSBuild 2.7.2` builds
+that exact version. It skips resolution and never falls back: the version
+verifies, or the current parser stays.
+
+Upstream's `highlights.scm` has no captures for `escalate`, `render`,
+`show_and_return`, `when`, `is`, `is not` and `not`, so the installed query
+appends keyword captures for whichever of those the built grammar defines.
+
+Neovim loads a parser once per session. When a build replaces the version
+this session loaded, the message tells you to restart; until then the session
+keeps the old parser and its queries. The outcome is recorded in
+`ts-state.json` and shown by `:checkhealth agentscript-nvim`:
+
+```
+- ✅ OK tree-sitter grammar: 3.2.1 via current path, verification passed (highlights compile, escalate snippet parses clean)
+```
+
+Once built, `.agent` buffers use tree-sitter highlighting automatically.
+Without a parser, the fallback regex syntax keeps files readable.
 
 ## Tests
 
@@ -113,21 +152,30 @@ nvim -l tests/test_lsp.lua              # filetype rules (.agent, .ascript,
                                         # + the tree-sitter section
 nvim -l tests/test_install.lua          # stubbed install paths (current /
                                         # fallback / pinned-offline / both-fail,
-                                        # verify crash + timeout; no network),
-                                        # then the real verified install into
+                                        # verify crash + timeout, npm view
+                                        # against a fake npm; no network), then
+                                        # the real verified install into
                                         # stdpath('data')
 nvim -l tests/test_upstream_config.lua  # post-merge nvim-lspconfig simulation:
                                         # real clone on rtp, npm-style shim on
                                         # PATH, default PR cmd, :checkhealth
-nvim -l tests/test_treesitter.lua       # grammar builds, parser loads, official
-                                        # queries yield captures, ERROR node on
-                                        # the broken fixture
+nvim -l tests/test_treesitter.lua       # real 3.2.1 and 2.7.2 builds with
+                                        # resolution stubbed: current / fallback
+                                        # / pinned-offline / requested paths,
+                                        # failed updates keeping the parser,
+                                        # verify rejecting a broken query, the
+                                        # 3.x keywords parsing and highlighted,
+                                        # :AgentScriptTSBuild!, 0.2.0 installs
 ```
 
-Verified passing (2026-07-22) on **Linux** — all four suites, tree-sitter
-built with gcc 12 (node:22-bookworm container, Neovim 0.12.4; run
+`test_treesitter` fetches the two grammar packages with `npm pack` on its
+first run (into `scratch/ts/`) and needs a C compiler. CI runs it with
+`test_install` and `test_lsp`.
+
+Verified passing (2026-09-25) on **Linux**, all four suites, tree-sitter
+built with gcc 12 (node:22-bookworm container, Neovim 0.12.4, Node 22.23; run
 `docker run --rm -v "<repo>:/work" node:22-bookworm bash
-/work/scratch/linux/run-tests.sh`) — and on **Windows 11** (Neovim 0.12.2,
+/work/scratch/linux/run-tests.sh`), and on **Windows 11** (Neovim 0.12.2,
 Node 22.18) for all four suites, with the tree-sitter grammar built via
 portable zig 0.16.0 (`zig cc`). `broken.agent` yields `L2 [ERROR] Missing :`
 and `L4 [ERROR] Unknown block: bogus_block_keyword`; `sample.agent` yields only

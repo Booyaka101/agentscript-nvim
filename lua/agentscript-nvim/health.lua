@@ -63,7 +63,42 @@ function M.check()
 
   local ts = require('agentscript-nvim.treesitter')
   if ts.available() then
-    health.ok('tree-sitter parser installed: ' .. ts.parser_path())
+    local st = ts.state()
+    if not st then
+      health.warn('tree-sitter grammar: version unknown (built before agentscript-nvim 0.3.0): ' .. ts.parser_path(), {
+        'run :AgentScriptTSBuild to build and verify the currently published grammar',
+      })
+    else
+      local line = ('tree-sitter grammar: %s via %s path, %s (%s)'):format(
+        tostring(st.version),
+        tostring(st.path),
+        st.verified and 'verification passed' or 'verification FAILED',
+        tostring(st.reason)
+      )
+      if st.path == 'fallback' or st.path == 'pinned-offline' or not st.verified then
+        health.warn(line, {
+          'the pinned ' .. ts.PIN .. ' cannot parse 3.x syntax such as `escalate`',
+          'run :AgentScriptTSBuild to retry the published grammar',
+        })
+      else
+        health.ok(line)
+        if st.path == 'requested' then
+          health.info(
+            'pinned by :AgentScriptTSBuild ' .. st.version .. '; run it with no argument to track the published grammar'
+          )
+        end
+      end
+      if type(st.rejected) == 'table' then
+        health.warn(
+          ('tree-sitter grammar: published %s failed to build or verify (%s): %s'):format(
+            tostring(st.rejected.version),
+            tostring(st.rejected.at),
+            tostring(st.rejected.reason)
+          ),
+          { 'kept ' .. st.version .. '; run :AgentScriptTSBuild to retry' }
+        )
+      end
+    end
   else
     health.info('tree-sitter parser not built (using fallback regex syntax)', {
       'run :AgentScriptTSBuild (needs npm, tar and a C compiler: cc/gcc/clang/zig)',
