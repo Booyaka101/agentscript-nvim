@@ -7,11 +7,14 @@ local install = require('agentscript-nvim.install')
 local M = {}
 
 M.ns = vim.api.nvim_create_namespace('agentscript-sf')
+local prompt_ns = vim.api.nvim_create_namespace('agentscript-sf-prompt')
 
 M.VALIDATE_TIMEOUT_MS = 120000
 M.START_TIMEOUT_MS = 120000
 M.SEND_TIMEOUT_MS = 60000
 M.END_TIMEOUT_MS = 60000
+-- How long quitting Neovim waits for open previews to end.
+M.EXIT_WAIT_MS = 10000
 
 M.INSTALL_DOC =
   'https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm'
@@ -49,7 +52,8 @@ function M.resolve(on_done)
     on_done(nil, 'sf not found on PATH; install the Salesforce CLI: ' .. M.INSTALL_DOC)
     return
   end
-  if resolved and resolved.exe == exe then
+  -- An sf update can move run.js.
+  if resolved and resolved.exe == exe and vim.uv.fs_stat(resolved.prefix[#resolved.prefix]) then
     on_done(resolved.prefix)
     return
   end
@@ -70,7 +74,8 @@ function M.resolve(on_done)
       end
     end
     if not run then
-      on_done(nil, "could not find sf's run.js via `sf version --verbose`: " .. one_line(res.stderr))
+      local why = one_line(res.stderr)
+      on_done(nil, "could not find sf's run.js via `sf version --verbose`" .. (why ~= '' and ': ' .. why or ''))
       return
     end
     local node = vim.fs.joinpath(root, 'bin', 'node.exe')
@@ -89,15 +94,18 @@ local function find_agents(root, name)
   local found = {}
   for _, pkg in ipairs(type(project.packageDirectories) == 'table' and project.packageDirectories or {}) do
     if type(pkg.path) == 'string' then
-      vim.list_extend(
-        found,
-        vim.fs.find(function(n, dir)
-          local bundle = vim.fs.basename(dir)
-          return n == bundle .. '.agent'
-            and (not name or bundle == name)
-            and vim.fs.basename(vim.fs.dirname(dir)) == 'aiAuthoringBundles'
-        end, { path = vim.fs.joinpath(root, pkg.path), type = 'file', limit = name and 1 or math.huge })
-      )
+      local files = vim.fs.find(name and name .. '.agent' or function(n)
+        return vim.endswith(n, '.agent')
+      end, { path = vim.fs.joinpath(root, pkg.path), type = 'file', limit = math.huge })
+      for _, file in ipairs(files) do
+        local dir = vim.fs.dirname(file)
+        if
+          vim.fs.basename(file) == vim.fs.basename(dir) .. '.agent'
+          and vim.fs.basename(vim.fs.dirname(dir)) == 'aiAuthoringBundles'
+        then
+          table.insert(found, file)
+        end
+      end
     end
   end
   return found
@@ -108,24 +116,41 @@ end
 ---@field root string directory holding sfdx-project.json; sf runs from here
 ---@field file? string the .agent file, if found locally
 
---- Resolve a bundle from an explicit api name, or from the current buffer's
---- path, …/aiAuthoringBundles/<Name>/<Name>.agent.
+--- The current buffer's path if it is a file, else nil.
+local function buf_file()
+  local path = vim.api.nvim_buf_get_name(0)
+  return vim.bo.buftype == '' and path ~= '' and path or nil
+end
+
+--- Where to look for sfdx-project.json from the current buffer.
+local function start_dir()
+  local path, here = buf_file(), vim.b.agentscript_bundle
+  return path and vim.fs.dirname(path) or here and here.root or vim.fn.getcwd()
+end
+
+--- Resolve a bundle from an explicit api name, from the current buffer's
+--- path, …/aiAuthoringBundles/<Name>/<Name>.agent, or from the preview
+--- buffer it is called in.
 ---@param name? string
 ---@return agentscript.Bundle? bundle, string? err
 function M.bundle(name)
-  local path = vim.api.nvim_buf_get_name(0)
+  if not name and vim.b.agentscript_bundle then
+    return vim.b.agentscript_bundle
+  end
   local file
   if not name then
-    if path == '' then
+    file = buf_file()
+    if not file then
       return nil, 'this buffer has no file; pass the bundle name'
     end
-    local dir = vim.fs.dirname(path)
-    if vim.fn.glob(vim.fs.joinpath(dir, '*.bundle-meta.xml')) == '' then
-      return nil, 'not an authoring bundle: no *.bundle-meta.xml in ' .. dir
+    local dir = vim.fs.dirname(file)
+    name = vim.fs.basename(dir)
+    local meta = vim.fs.joinpath(dir, name .. '.bundle-meta.xml')
+    if not vim.uv.fs_stat(meta) then
+      return nil, 'not an authoring bundle: no ' .. meta
     end
-    name, file = vim.fs.basename(dir), path
   end
-  local start = path ~= '' and vim.fs.dirname(path) or vim.fn.getcwd()
+  local start = start_dir()
   local root = vim.fs.root(start, 'sfdx-project.json')
   if not root then
     return nil, 'no sfdx-project.json above ' .. start .. '; sf agent commands run inside a Salesforce DX project'
@@ -137,8 +162,7 @@ end
 ---@param arglead string
 ---@return string[]
 function M.complete(arglead)
-  local path = vim.api.nvim_buf_get_name(0)
-  local root = vim.fs.root(path ~= '' and vim.fs.dirname(path) or vim.fn.getcwd(), 'sfdx-project.json')
+  local root = vim.fs.root(start_dir(), 'sfdx-project.json')
   local names = {}
   for _, file in ipairs(root and find_agents(root) or {}) do
     local name = vim.fs.basename(vim.fs.dirname(file))
@@ -151,12 +175,29 @@ function M.complete(arglead)
   return names
 end
 
+--- Bundles are only unique within a project.
+---@param bundle agentscript.Bundle
+local function key(bundle)
+  return vim.fs.joinpath(bundle.root, bundle.name)
+end
+
+--- sf --json prints one JSON document, possibly after other output.
+local function decode(stdout)
+  for _, s in ipairs({ stdout, ('\n' .. stdout):match('\n({.*)') }) do
+    local ok, v = pcall(vim.json.decode, s)
+    if ok and type(v) == 'table' then
+      return v
+    end
+  end
+end
+
 --- Run `sf <args> --json` from the bundle's project. Calls on_done(result)
---- on success, or on_done(nil, one-line message, decoded error envelope).
+--- on success, or on_done(nil, one-line message, decoded error envelope,
+--- timed_out).
 ---@param bundle agentscript.Bundle
 ---@param args string[]
 ---@param timeout_ms integer
----@param on_done fun(result: table?, err: string?, envelope: table?)
+---@param on_done fun(result: table?, err: string?, envelope: table?, timed_out: boolean?)
 function M.run(bundle, args, timeout_ms, on_done)
   M.resolve(function(prefix, err)
     if not prefix then
@@ -170,12 +211,11 @@ function M.run(bundle, args, timeout_ms, on_done)
       vim.list_extend(cmd, { '--target-org', org })
     end
     install.system(cmd, { cwd = bundle.root }, timeout_ms, function(res)
-      local ok, env = pcall(vim.json.decode, (res.stdout or ''):match('{.*') or '')
-      env = ok and type(env) == 'table' and env or nil
+      local env = decode(res.stdout or '')
       if res.code == 0 and env and type(env.result) == 'table' then
         on_done(env.result)
       elseif res.code == 124 then
-        on_done(nil, ('sf %s %s'):format(table.concat(args, ' ', 1, 3), res.stderr))
+        on_done(nil, ('sf %s %s'):format(table.concat(args, ' ', 1, 3), res.stderr), nil, true)
       else
         local msg = env and type(env.message) == 'string' and env.message or res.stderr
         on_done(nil, one_line(msg ~= '' and msg or ('sf exited with code ' .. res.code)), env)
@@ -243,6 +283,9 @@ function M.diagnostics(bufnr, envelope)
   return diags
 end
 
+-- The latest validate per bundle; results of earlier ones are dropped.
+local validating = {}
+
 --- :AgentScriptValidate [name]
 ---@param name? string
 function M.validate(name)
@@ -251,6 +294,9 @@ function M.validate(name)
     notify(err, vim.log.levels.ERROR)
     return
   end
+  local k = key(bundle)
+  local gen = (validating[k] or 0) + 1
+  validating[k] = gen
   local bufnr = bundle.file and vim.fn.bufadd(bundle.file)
   local title = 'sf agent validate ' .. bundle.name
   if bufnr and vim.bo[bufnr].modified then
@@ -262,11 +308,15 @@ function M.validate(name)
     { 'agent', 'validate', 'authoring-bundle', '--api-name', bundle.name },
     M.VALIDATE_TIMEOUT_MS,
     function(_, msg, envelope)
+      if validating[k] ~= gen then
+        return
+      end
+      local ours = vim.fn.getqflist({ title = 0 }).title == title
       if not msg then
         if bufnr then
           vim.diagnostic.reset(M.ns, bufnr)
         end
-        if vim.fn.getqflist({ title = 0 }).title == title then
+        if ours then
           vim.fn.setqflist({}, 'r', { title = title, items = {} })
         end
         notify('validated ' .. bundle.name)
@@ -278,23 +328,35 @@ function M.validate(name)
         return
       end
       vim.diagnostic.set(M.ns, bufnr, diags)
-      vim.fn.setqflist({}, ' ', { title = title, items = vim.diagnostic.toqflist(diags) })
+      vim.fn.setqflist({}, ours and 'r' or ' ', { title = title, items = vim.diagnostic.toqflist(diags) })
       notify(('%s: %d error%s'):format(bundle.name, #diags, #diags == 1 and '' or 's'), vim.log.levels.ERROR)
     end
   )
 end
 
--- Preview sessions by bundle name.
+-- Preview sessions by project and bundle name.
 M.sessions = {}
 
+local exiting = false
+
 local PROMPT = '> '
+
+-- The prompt row is an extmark so it follows the user's edits above it.
+local function prompt_row(s)
+  return vim.api.nvim_buf_get_extmark_by_id(s.buf, prompt_ns, s.mark, {})[1]
+end
+
+local function set_prompt_row(s, row)
+  s.mark = vim.api.nvim_buf_set_extmark(s.buf, prompt_ns, row, 0, { id = s.mark, right_gravity = false })
+end
 
 local function append(s, lines)
   if not vim.api.nvim_buf_is_valid(s.buf) then
     return
   end
-  vim.api.nvim_buf_set_lines(s.buf, s.prompt_row, s.prompt_row, false, lines)
-  s.prompt_row = s.prompt_row + #lines
+  local row = prompt_row(s)
+  vim.api.nvim_buf_set_lines(s.buf, row, row, false, lines)
+  set_prompt_row(s, row + #lines)
 end
 
 local function prefixed(label, text)
@@ -304,7 +366,8 @@ local function prefixed(label, text)
 end
 
 local function send(s)
-  local lines = vim.api.nvim_buf_get_lines(s.buf, s.prompt_row, -1, false)
+  local row = prompt_row(s)
+  local lines = vim.api.nvim_buf_get_lines(s.buf, row, -1, false)
   lines[1] = (lines[1] or ''):gsub('^>%s?', '')
   local text = table.concat(lines, '\n')
   if vim.trim(text) == '' then
@@ -316,8 +379,8 @@ local function send(s)
   end
   s.busy = true
   local user = prefixed('user', text)
-  vim.api.nvim_buf_set_lines(s.buf, s.prompt_row, -1, false, vim.list_extend(vim.list_extend({}, user), { PROMPT }))
-  s.prompt_row = s.prompt_row + #user
+  vim.api.nvim_buf_set_lines(s.buf, row, -1, false, vim.list_extend(vim.list_extend({}, user), { PROMPT }))
+  set_prompt_row(s, row + #user)
   vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(s.buf), #PROMPT })
   M.run(
     s.bundle,
@@ -346,7 +409,9 @@ local function end_session(s, on_done)
     return
   end
   s.ended = true
-  M.sessions[s.bundle.name] = nil
+  if M.sessions[key(s.bundle)] == s then
+    M.sessions[key(s.bundle)] = nil
+  end
   M.run(
     s.bundle,
     { 'agent', 'preview', 'end', '--authoring-bundle', s.bundle.name, '--session-id', s.id },
@@ -364,22 +429,9 @@ local function end_session(s, on_done)
   )
 end
 
-local function open(bundle, id, live)
+local function open(s, live)
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_name(buf, 'agentscript-preview://' .. bundle.name)
-  vim.bo[buf].bufhidden = 'wipe'
-  vim.bo[buf].filetype = 'agentscript-preview'
-  local s = { bundle = bundle, id = id, buf = buf, prompt_row = 1 }
-  M.sessions[bundle.name] = s
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-    ('# %s preview, %s actions. <CR> sends the prompt.'):format(bundle.name, live and 'live' or 'simulated'),
-    PROMPT,
-  })
-  vim.api.nvim_open_win(buf, true, { split = 'below' })
-  vim.api.nvim_win_set_cursor(0, { 2, #PROMPT })
-  vim.keymap.set({ 'n', 'i' }, '<CR>', function()
-    send(s)
-  end, { buffer = buf, desc = 'Send the prompt to the agent' })
+  s.buf = buf
   vim.api.nvim_create_autocmd('BufWipeout', {
     buffer = buf,
     once = true,
@@ -387,21 +439,41 @@ local function open(bundle, id, live)
       end_session(s)
     end,
   })
+  vim.api.nvim_buf_set_name(buf, 'agentscript-preview://' .. key(s.bundle))
+  vim.bo[buf].bufhidden = 'wipe'
+  -- Undo would take back transcript lines under the prompt mark.
+  vim.bo[buf].undolevels = -1
+  vim.bo[buf].filetype = 'agentscript-preview'
+  vim.b[buf].agentscript_bundle = s.bundle
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    ('# %s preview, %s actions. <CR> sends the prompt.'):format(s.bundle.name, live and 'live' or 'simulated'),
+    PROMPT,
+  })
+  set_prompt_row(s, 1)
+  vim.api.nvim_open_win(buf, true, { split = 'below' })
+  vim.api.nvim_win_set_cursor(0, { 2, #PROMPT })
+  vim.keymap.set({ 'n', 'i' }, '<CR>', function()
+    send(s)
+  end, { buffer = buf, desc = 'Send the prompt to the agent' })
 end
 
 vim.api.nvim_create_autocmd('VimLeavePre', {
   group = vim.api.nvim_create_augroup('agentscript-sf', { clear = true }),
   callback = function()
+    exiting = true
     local pending = 0
+    local function done()
+      pending = pending - 1
+    end
     for _, s in pairs(M.sessions) do
+      pending = pending + 1
       if s.id then
-        pending = pending + 1
-        end_session(s, function()
-          pending = pending - 1
-        end)
+        end_session(s, done)
+      else
+        s.on_started = done
       end
     end
-    vim.wait(M.END_TIMEOUT_MS + 1000, function()
+    vim.wait(M.EXIT_WAIT_MS, function()
       return pending == 0
     end, 50)
   end,
@@ -416,17 +488,19 @@ function M.preview(name, live)
     notify(err, vim.log.levels.ERROR)
     return
   end
-  local s = M.sessions[bundle.name]
+  local k = key(bundle)
+  local s = M.sessions[k]
   if s then
-    if s.buf then
-      -- bufhidden=wipe: while the session lives, its buffer is in a window.
-      vim.api.nvim_set_current_win(vim.fn.win_findbuf(s.buf)[1])
-    else
+    if not s.buf then
       notify('preview of ' .. bundle.name .. ' is still starting')
+      return
     end
+    -- bufhidden=wipe: while the session lives, its buffer is in a window.
+    vim.api.nvim_set_current_win(vim.fn.win_findbuf(s.buf)[1])
     return
   end
-  M.sessions[bundle.name] = {}
+  s = { bundle = bundle }
+  M.sessions[k] = s
   notify('starting preview of ' .. bundle.name .. ' ...')
   M.run(
     bundle,
@@ -439,13 +513,29 @@ function M.preview(name, live)
       live and '--use-live-actions' or '--simulate-actions',
     },
     M.START_TIMEOUT_MS,
-    function(result, msg)
-      M.sessions[bundle.name] = nil
+    function(result, msg, _, timed_out)
       if not result or type(result.sessionId) ~= 'string' then
-        notify(msg or 'sf agent preview start returned no sessionId', vim.log.levels.ERROR)
+        M.sessions[k] = nil
+        msg = msg or 'sf agent preview start returned no sessionId'
+        notify(msg .. (timed_out and '; is Agentforce turned on in the org?' or ''), vim.log.levels.ERROR)
+        if s.on_started then
+          s.on_started()
+        end
         return
       end
-      open(bundle, result.sessionId, live)
+      s.id = result.sessionId
+      if exiting then
+        end_session(s, s.on_started)
+        return
+      end
+      local ok, open_err = pcall(open, s, live)
+      if not ok then
+        if s.buf and vim.api.nvim_buf_is_valid(s.buf) then
+          vim.api.nvim_buf_delete(s.buf, { force = true })
+        end
+        end_session(s)
+        notify('could not open the preview of ' .. bundle.name .. ': ' .. open_err, vim.log.levels.ERROR)
+      end
     end
   )
 end

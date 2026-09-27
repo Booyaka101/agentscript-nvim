@@ -12,20 +12,25 @@ so there is no offline mode.
 - `:AgentScriptValidate [name]` runs `sf agent validate authoring-bundle` in
   the background for the current buffer's bundle (or the named one) and puts
   the compile errors on the right line and column as diagnostics (source
-  `sf agent validate`) and in the quickfix list. A clean compile clears both.
-  Positions come from `data.errors` in sf's JSON, with the
+  `sf agent validate`) and in the quickfix list. A clean compile clears both,
+  and running it again replaces its quickfix list instead of stacking a new
+  one. If you validate again before sf answers, only the latest run's result
+  is shown. Positions come from `data.errors` in sf's JSON, with the
   `[Ln X, Col Y]` suffixes in its message as a fallback.
 - Both commands complete `[name]` from the bundles in the project's
   package directories.
 - `:AgentScriptPreview[!] [name]` starts `sf agent preview` with simulated
   actions (live with `!`) and opens a split to chat in. `<CR>` sends the
   prompt. Closing the split or quitting Neovim ends the session and prints
-  where sf saved the traces. One session per bundle; running it again jumps
-  to the open split. Preview needs Agentforce turned on in the org.
+  where sf saved the traces; quitting waits up to 10 seconds for that. One
+  session per bundle in each project; running it again jumps to the open
+  split. Both commands, run in the chat, act on its bundle. Preview needs
+  Agentforce turned on in the org, and a start that times out says so.
 - `target_org` option in `setup()`, passed as `--target-org`. Unset, sf uses
   its default org.
 - `:checkhealth agentscript-nvim` has an sf section: the sf version and
-  whether `sf agent validate authoring-bundle` exists.
+  whether `sf agent validate authoring-bundle` exists, checked with the same
+  command line the commands use.
 
 ### Notes
 
@@ -37,7 +42,7 @@ so there is no offline mode.
   the `sf.cmd` shim, because cmd.exe cuts an argument at its first newline.
   A multi-line prompt reaches the agent intact.
 - The bundle is found from the buffer's path,
-  `aiAuthoringBundles/<Name>/<Name>.agent` next to a `.bundle-meta.xml`, and
+  `aiAuthoringBundles/<Name>/<Name>.agent` next to `<Name>.bundle-meta.xml`, and
   sf runs from the directory holding `sfdx-project.json`.
 
 ## 0.3.0 — 2026-09-25

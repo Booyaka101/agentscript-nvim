@@ -171,13 +171,15 @@ error still gets the right column.
 
 `:AgentScriptPreview` starts a preview session with simulated actions and
 opens a split. Type after the `> ` prompt and press `<CR>` to send; the
-agent's reply lands above the prompt. `:AgentScriptPreview!` uses live
-actions instead. Running the command again while the session is open jumps to
-its split. Closing the split (or quitting Neovim) ends the session, and the
-message says where sf saved the traces (`.sfdx/agents/<Name>/sessions/<id>`
-in the project). Preview needs Agentforce turned on in the org (Setup,
-Agentforce Agents); without it `sf agent preview start` hangs for about five
-minutes and then fails.
+agent's reply lands above the prompt. `<CR>` sends in insert mode too, so
+add the lines of a longer prompt with `o` from normal mode.
+`:AgentScriptPreview!` uses live actions instead. Running the command again
+while the session is open jumps to its split, and either command run in the
+chat acts on its bundle. Closing the split (or quitting Neovim) ends the
+session, and the message says where sf saved the traces
+(`.sfdx/agents/<Name>/sessions/<id>` in the project). Preview needs Agentforce turned on in the org (Setup,
+Agentforce Agents). Without it `sf agent preview start` never answers, and
+the command gives up after two minutes and asks whether Agentforce is on.
 
 `:checkhealth agentscript-nvim` shows the sf version and whether
 `sf agent validate authoring-bundle` exists in it.

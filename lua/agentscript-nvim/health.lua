@@ -106,34 +106,45 @@ local function check_plugin()
   end
 end
 
--- Through install.system so a hung sf can't hold :checkhealth past the timeout.
-local function sf_sync(exe, args)
-  local res
-  require('agentscript-nvim.install').system(vim.list_extend({ exe }, args), {}, 30000, function(r)
-    res = r
-  end)
-  vim.wait(31000, function()
-    return res ~= nil
-  end, 50)
-  return res or { code = 124, stdout = '', stderr = 'timed out' }
-end
-
 local function check_sf()
   local health = vim.health
   health.start('agentscript-nvim: sf (:AgentScriptValidate, :AgentScriptPreview)')
   local sf = require('agentscript-nvim.sf')
-  local exe = sf.exe()
-  if not exe then
+  local install = require('agentscript-nvim.install')
+  if not sf.exe() then
     health.warn('sf not found on PATH', { 'install the Salesforce CLI: ' .. sf.INSTALL_DOC })
     return
   end
-  local v = sf_sync(exe, { '--version' })
+  -- The same argv the commands use, so this checks what they will run.
+  local done, prefix, err = false, nil, nil
+  sf.resolve(function(p, e)
+    done, prefix, err = true, p, e
+  end)
+  vim.wait(sf.SEND_TIMEOUT_MS + 1000, function()
+    return done
+  end, 50)
+  if not prefix then
+    health.error(err or 'resolving sf timed out')
+    return
+  end
+  -- Through install.system so a hung sf can't hold :checkhealth past the timeout.
+  local res = {}
+  local probes = { version = { '--version' }, help = { 'agent', 'validate', 'authoring-bundle', '--help' } }
+  for name, args in pairs(probes) do
+    install.system(vim.list_extend(vim.list_extend({}, prefix), args), {}, 30000, function(r)
+      res[name] = r
+    end)
+  end
+  vim.wait(31000, function()
+    return res.version and res.help
+  end, 50)
+  local timed_out = { code = 124, stdout = '', stderr = 'timed out' }
+  local v, h = res.version or timed_out, res.help or timed_out
   if v.code == 0 then
     health.ok('sf: ' .. sf.one_line(v.stdout))
   else
     health.warn(('sf --version exited %d: %s'):format(v.code, sf.one_line(v.stderr)))
   end
-  local h = sf_sync(exe, { 'agent', 'validate', 'authoring-bundle', '--help' })
   if h.code == 0 then
     health.ok('sf agent validate authoring-bundle --help exits 0')
   else

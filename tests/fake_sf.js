@@ -1,8 +1,9 @@
 // Test stub standing in for `sf`: replays output captured from a real org
 // (tests/fixtures/sf) and appends {args, cwd, pid} to $FAKE_SF_LOG.
 // $FAKE_SF_MODE picks the validate outcome: pass, fail, fail-nodata (the same
-// failure without data.errors), unicode, noorg, unknown, hang, and expired
-// for preview send.
+// failure without data.errors), unicode, noorg, unknown, hang, noisy (a pass
+// after a line of other output), and expired for preview send.
+// $FAKE_SF_DELAY holds every command but `version` back that many ms.
 const fs = require('fs');
 const path = require('path');
 
@@ -21,28 +22,38 @@ function replay(name, edit) {
 
 const mode = process.env.FAKE_SF_MODE || 'pass';
 const sub = args.slice(0, 3).join(' ');
-if (args[0] === 'version') {
-  replay('version', (v) => (v.rootPath = process.env.FAKE_SF_ROOT));
-} else if (mode === 'hang') {
-  setTimeout(() => {}, 600000);
-} else if (mode === 'unknown') {
-  process.stderr.write(fs.readFileSync(path.join(fixtures, 'unknown-command.stderr.txt'), 'utf8'));
-  process.exitCode = 127;
-} else if (mode === 'noorg') {
-  replay('no-default-org');
-} else if (sub === 'agent validate authoring-bundle') {
-  if (mode === 'fail-nodata') replay('validate-fail', (e) => delete e.data);
-  else replay({ pass: 'validate-pass', fail: 'validate-fail', unicode: 'validate-unicode' }[mode]);
-} else if (sub === 'agent preview start') {
-  replay('preview-start');
-} else if (sub === 'agent preview send' && mode === 'expired') {
-  replay('preview-session-invalid');
-} else if (sub === 'agent preview send') {
-  const sent = entries.filter((l) => JSON.parse(l).args[2] === 'send').length;
-  replay('preview-send-' + ((sent % 3) + 1));
-} else if (sub === 'agent preview end') {
-  replay('preview-end');
-} else {
-  process.stderr.write('fake_sf: unhandled ' + args.join(' ') + '\n');
-  process.exitCode = 2;
+
+function main() {
+  if (args[0] === '--version') {
+    const v = JSON.parse(fs.readFileSync(path.join(fixtures, 'version.json'), 'utf8'));
+    process.stdout.write(`${v.cliVersion} ${v.architecture} ${v.nodeVersion}\n`);
+  } else if (args.includes('--help')) {
+    process.stdout.write('Validate an authoring bundle.\n');
+  } else if (mode === 'hang') {
+    setTimeout(() => {}, 600000);
+  } else if (mode === 'unknown') {
+    process.stderr.write(fs.readFileSync(path.join(fixtures, 'unknown-command.stderr.txt'), 'utf8'));
+    process.exitCode = 127;
+  } else if (mode === 'noorg') {
+    replay('no-default-org');
+  } else if (sub === 'agent validate authoring-bundle') {
+    if (mode === 'noisy') process.stdout.write('Warning: {config} is deprecated\n');
+    if (mode === 'fail-nodata') replay('validate-fail', (e) => delete e.data);
+    else replay({ pass: 'validate-pass', noisy: 'validate-pass', fail: 'validate-fail', unicode: 'validate-unicode' }[mode]);
+  } else if (sub === 'agent preview start') {
+    replay('preview-start');
+  } else if (sub === 'agent preview send' && mode === 'expired') {
+    replay('preview-session-invalid');
+  } else if (sub === 'agent preview send') {
+    const sent = entries.filter((l) => JSON.parse(l).args[2] === 'send').length;
+    replay('preview-send-' + ((sent % 3) + 1));
+  } else if (sub === 'agent preview end') {
+    replay('preview-end');
+  } else {
+    process.stderr.write('fake_sf: unhandled ' + args.join(' ') + '\n');
+    process.exitCode = 2;
+  }
 }
+
+if (args[0] === 'version') replay('version', (v) => (v.rootPath = process.env.FAKE_SF_ROOT));
+else setTimeout(main, Number(process.env.FAKE_SF_DELAY || 0));
