@@ -79,6 +79,30 @@ function M.resolve(on_done)
   end)
 end
 
+--- The .agent files of the project's authoring bundles, or of the one called
+--- `name`. Searches the package directories only, like sf.
+---@param root string
+---@param name? string
+---@return string[]
+local function find_agents(root, name)
+  local project = install.read_json(vim.fs.joinpath(root, 'sfdx-project.json')) or {}
+  local found = {}
+  for _, pkg in ipairs(type(project.packageDirectories) == 'table' and project.packageDirectories or {}) do
+    if type(pkg.path) == 'string' then
+      vim.list_extend(
+        found,
+        vim.fs.find(function(n, dir)
+          local bundle = vim.fs.basename(dir)
+          return n == bundle .. '.agent'
+            and (not name or bundle == name)
+            and vim.fs.basename(vim.fs.dirname(dir)) == 'aiAuthoringBundles'
+        end, { path = vim.fs.joinpath(root, pkg.path), type = 'file', limit = name and 1 or math.huge })
+      )
+    end
+  end
+  return found
+end
+
 ---@class agentscript.Bundle
 ---@field name string api name, which is also the directory name
 ---@field root string directory holding sfdx-project.json; sf runs from here
@@ -106,22 +130,25 @@ function M.bundle(name)
   if not root then
     return nil, 'no sfdx-project.json above ' .. start .. '; sf agent commands run inside a Salesforce DX project'
   end
-  if not file then
-    -- Where sf looks too: the package directories, not all of the project.
-    local project = install.read_json(vim.fs.joinpath(root, 'sfdx-project.json')) or {}
-    for _, pkg in ipairs(type(project.packageDirectories) == 'table' and project.packageDirectories or {}) do
-      file = type(pkg.path) == 'string'
-        and vim.fs.find(function(n, dir)
-          return n == name .. '.agent'
-            and vim.fs.basename(dir) == name
-            and vim.fs.basename(vim.fs.dirname(dir)) == 'aiAuthoringBundles'
-        end, { path = vim.fs.joinpath(root, pkg.path), type = 'file', limit = 1 })[1]
-      if file then
-        break
-      end
+  return { name = name, root = root, file = file or find_agents(root, name)[1] }
+end
+
+--- Completion for the [name] argument: the bundles in the project.
+---@param arglead string
+---@return string[]
+function M.complete(arglead)
+  local path = vim.api.nvim_buf_get_name(0)
+  local root = vim.fs.root(path ~= '' and vim.fs.dirname(path) or vim.fn.getcwd(), 'sfdx-project.json')
+  local names = {}
+  for _, file in ipairs(root and find_agents(root) or {}) do
+    local name = vim.fs.basename(vim.fs.dirname(file))
+    if vim.startswith(name, arglead) then
+      names[name] = true
     end
   end
-  return { name = name, root = root, file = file }
+  names = vim.tbl_keys(names)
+  table.sort(names)
+  return names
 end
 
 --- Run `sf <args> --json` from the bundle's project. Calls on_done(result)

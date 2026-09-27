@@ -151,6 +151,21 @@ check(
 )
 check(#calls() == 0, 'no bundle-meta.xml: nothing spawned')
 
+-- Completion: bundles in the package directories, not the rest of the project
+
+local bundles = vim.fs.dirname(bundle_dir)
+write(vim.fs.joinpath(bundles, 'Another_Bot', 'Another_Bot.agent'), agent_text)
+write(vim.fs.joinpath(project, 'unpackaged', 'aiAuthoringBundles', 'Hidden', 'Hidden.agent'), agent_text)
+local names = vim.fn.getcompletion('AgentScriptValidate ', 'cmdline')
+check(
+  vim.deep_equal(names, { 'Another_Bot', 'Nvim_Probe' }),
+  'completion: bundles in packageDirectories',
+  vim.inspect(names)
+)
+names = vim.fn.getcompletion('AgentScriptPreview! Nv', 'cmdline')
+check(vim.deep_equal(names, { 'Nvim_Probe' }), 'completion: filters by prefix', vim.inspect(names))
+vim.fn.delete(vim.fs.joinpath(bundles, 'Another_Bot'), 'rf')
+
 -- validate pass -------------------------------------------------------------
 
 vim.env.FAKE_SF_MODE = 'pass'

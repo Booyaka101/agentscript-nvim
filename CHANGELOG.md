@@ -15,6 +15,8 @@ so there is no offline mode.
   `sf agent validate`) and in the quickfix list. A clean compile clears both.
   Positions come from `data.errors` in sf's JSON, with the
   `[Ln X, Col Y]` suffixes in its message as a fallback.
+- Both commands complete `[name]` from the bundles in the project's
+  package directories.
 - `:AgentScriptPreview[!] [name]` starts `sf agent preview` with simulated
   actions (live with `!`) and opens a split to chat in. `<CR>` sends the
   prompt. Closing the split or quitting Neovim ends the session and prints

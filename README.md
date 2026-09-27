@@ -160,7 +160,8 @@ inside a Salesforce DX project (`sfdx-project.json` somewhere above it). The
 directory name is the bundle's api name. sf runs from the project root.
 
 `:AgentScriptValidate` compiles the current buffer's bundle.
-`:AgentScriptValidate <Name>` compiles another one in the project. sf reads
+`:AgentScriptValidate <Name>` compiles another one in the project (`<Tab>`
+completes the names). sf reads
 the file from disk, so save first. The command warns if the buffer has unsaved
 changes. Errors land
 as diagnostics (source `sf agent validate`) on the right line and column, and

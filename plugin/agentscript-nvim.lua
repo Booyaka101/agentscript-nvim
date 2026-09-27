@@ -22,6 +22,9 @@ vim.api.nvim_create_user_command('AgentScriptValidate', function(args)
   require('agentscript-nvim.sf').validate(args.args ~= '' and args.args or nil)
 end, {
   nargs = '?',
+  complete = function(arglead)
+    return require('agentscript-nvim.sf').complete(arglead)
+  end,
   desc = 'Compile the current authoring bundle (or [name]) on the org and show its errors',
 })
 
@@ -30,6 +33,9 @@ vim.api.nvim_create_user_command('AgentScriptPreview', function(args)
 end, {
   nargs = '?',
   bang = true,
+  complete = function(arglead)
+    return require('agentscript-nvim.sf').complete(arglead)
+  end,
   desc = 'Chat with the current authoring bundle (or [name]) in a preview session; ! uses live actions',
 })
 
