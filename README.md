@@ -20,6 +20,9 @@ What you get:
 - **`:AgentScriptTSBuild`**: builds the published tree-sitter grammar into
   `stdpath('data')` and verifies it parses current syntax before using it
   (below).
+- **`:AgentScriptValidate`** and **`:AgentScriptPreview`**: compile the
+  bundle on your org with its errors shown inline, and chat with it in a
+  split, through the Salesforce CLI (below).
 - **Fallback syntax highlighting** (`syntax/agentscript.vim`) with the real
   language keywords, so `.agent` files are readable even without the LSP.
 
@@ -45,6 +48,7 @@ require('agentscript-nvim').setup({
   cmd = nil,               -- explicit server command override
   extra_extensions = true, -- also register *.ascript
   install_hint = true,     -- notify when no working server is found
+  target_org = nil,        -- org for :AgentScriptValidate/Preview; nil = sf's default
 })
 ```
 
@@ -141,6 +145,45 @@ keeps the old parser and its queries. The outcome is recorded in
 Once built, `.agent` buffers use tree-sitter highlighting automatically.
 Without a parser, the fallback regex syntax keeps files readable.
 
+## Validate and preview on the org
+
+Both commands run the [Salesforce CLI](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm)
+(`sf`, with the agent plugin that ships in core) in the background, and both
+need an authenticated org. `sf agent validate authoring-bundle` doesn't
+compile locally: it sends the bundle to the org's Agentforce authoring API.
+Log in once with `sf org login web --set-default`, or set `target_org` in
+`setup()` to an alias or username.
+
+The `.agent` file has to be in an authoring bundle,
+`aiAuthoringBundles/<Name>/<Name>.agent` next to `<Name>.bundle-meta.xml`,
+inside a Salesforce DX project (`sfdx-project.json` somewhere above it). The
+directory name is the bundle's api name. sf runs from the project root.
+
+`:AgentScriptValidate` compiles the current buffer's bundle.
+`:AgentScriptValidate <Name>` compiles another one in the project (`<Tab>`
+completes the names). sf reads
+the file from disk, so save first. The command warns if the buffer has unsaved
+changes. Errors land
+as diagnostics (source `sf agent validate`) on the right line and column, and
+in the quickfix list. A clean compile clears both. sf reports 0-based lines
+and counts columns in characters, so a line with non-ASCII text before the
+error still gets the right column.
+
+`:AgentScriptPreview` starts a preview session with simulated actions and
+opens a split. Type after the `> ` prompt and press `<CR>` to send; the
+agent's reply lands above the prompt. `<CR>` sends in insert mode too, so
+add the lines of a longer prompt with `o` from normal mode.
+`:AgentScriptPreview!` uses live actions instead. Running the command again
+while the session is open jumps to its split, and either command run in the
+chat acts on its bundle. Closing the split (or quitting Neovim) ends the
+session, and the message says where sf saved the traces
+(`.sfdx/agents/<Name>/sessions/<id>` in the project). Preview needs Agentforce turned on in the org (Setup,
+Agentforce Agents). Without it `sf agent preview start` never answers, and
+the command gives up after two minutes and asks whether Agentforce is on.
+
+`:checkhealth agentscript-nvim` shows the sf version and whether
+`sf agent validate authoring-bundle` exists in it.
+
 ## Tests
 
 Headless end-to-end tests (they run the real server against real fixtures):
@@ -166,11 +209,23 @@ nvim -l tests/test_treesitter.lua       # real 3.2.1 and 2.7.2 builds with
                                         # verify rejecting a broken query, the
                                         # 3.x keywords parsing and highlighted,
                                         # :AgentScriptTSBuild!, 0.2.0 installs
+nvim -l tests/test_sf.lua               # :AgentScriptValidate/Preview against
+                                        # a stub sf (tests/fake_sf.js) that
+                                        # replays output captured from a real
+                                        # org: pass, two errors (diagnostics +
+                                        # quickfix), the [Ln X, Col Y] fallback,
+                                        # CRLF and non-ASCII columns, sf missing,
+                                        # no org, timeout kill, a three-turn
+                                        # preview ending on wipeout
 ```
 
 `test_treesitter` fetches the two grammar packages with `npm pack` on its
 first run (into `scratch/ts/`) and needs a C compiler. CI runs it with
-`test_install` and `test_lsp`.
+`test_install`, `test_lsp` and `test_sf`.
+
+Verified passing (2026-09-27) with all five suites on Linux and Windows, same
+setup as below. `:AgentScriptValidate` and a three-turn `:AgentScriptPreview`
+were also run against a real Developer Edition org with sf 2.151.7.
 
 Verified passing (2026-09-25) on **Linux**, all four suites, tree-sitter
 built with gcc 12 (node:22-bookworm container, Neovim 0.12.4, Node 22.23; run
@@ -190,11 +245,14 @@ shell script on Linux) spawns fine through the native `vim.lsp` client.
 lsp/agentscript.lua        vim.lsp.Config — ALSO the nvim-lspconfig PR file
 lua/agentscript-nvim/      plugin core: setup/resolution (init), managed server
                            install (install), grammar build (treesitter),
-                           :checkhealth (health)
-plugin/agentscript-nvim.lua auto-setup, :AgentScriptInstall, :AgentScriptTSBuild
+                           org validate and preview (sf), :checkhealth (health)
+plugin/agentscript-nvim.lua auto-setup, :AgentScriptInstall, :AgentScriptTSBuild,
+                           :AgentScriptValidate, :AgentScriptPreview
 syntax/agentscript.vim     fallback highlighting (used when no parser built)
 ftplugin/agentscript.vim   indent/comment settings
-tests/                     headless e2e tests + real fixtures
+tests/                     headless e2e tests + real fixtures (fixtures/sf:
+                           sf output captured from a real org, replayed by
+                           fake_sf.js)
 upstream/                  nvim-lspconfig PR text + agentscript bug report
 scratch/                   test tooling: server install, nvim-lspconfig clone,
                            grammar sources, Linux runner (mostly gitignored)

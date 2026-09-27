@@ -1,0 +1,21 @@
+{
+  "status": 0,
+  "result": {
+    "messages": [
+      {
+        "type": "Inform",
+        "id": "a26c29f5-449a-4ef0-8db3-af6c34ed8b25",
+        "metrics": {},
+        "feedbackId": "dcde1696-5abe-4001-b957-4789f3e7855a",
+        "planId": "dcde1696-5abe-4001-b957-4789f3e7855a",
+        "isContentSafe": true,
+        "message": "Hello!\nHow can I help you with questions related to my capabilities?",
+        "result": [],
+        "citedReferences": []
+      }
+    ],
+    "agentApiName": "Nvim_Probe",
+    "sessionId": "4a9ba646-a103-4d73-8dc4-8efaa8fb1af3"
+  },
+  "warnings": []
+}

@@ -1,0 +1,21 @@
+{
+  "status": 0,
+  "result": {
+    "messages": [
+      {
+        "type": "Inform",
+        "id": "bfa6b72f-aedc-4379-81ef-22924068bd8b",
+        "metrics": {},
+        "feedbackId": "c1d19e31-17d1-43fb-8e12-16cf7a233f88",
+        "planId": "c1d19e31-17d1-43fb-8e12-16cf7a233f88",
+        "isContentSafe": true,
+        "message": "Hello! How can I assist you today?",
+        "result": [],
+        "citedReferences": []
+      }
+    ],
+    "agentApiName": "Nvim_Probe",
+    "sessionId": "4a9ba646-a103-4d73-8dc4-8efaa8fb1af3"
+  },
+  "warnings": []
+}

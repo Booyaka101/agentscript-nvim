@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.4.0 — 2026-09-27
+
+Validate and preview an authoring bundle against your org without leaving
+Neovim. Both commands go through the Salesforce CLI and need an authenticated
+org: `sf agent validate authoring-bundle` compiles on the org, not locally,
+so there is no offline mode.
+
+### Added
+
+- `:AgentScriptValidate [name]` runs `sf agent validate authoring-bundle` in
+  the background for the current buffer's bundle (or the named one) and puts
+  the compile errors on the right line and column as diagnostics (source
+  `sf agent validate`) and in the quickfix list. A clean compile clears both,
+  and running it again replaces its quickfix list instead of stacking a new
+  one. If you validate again before sf answers, only the latest run's result
+  is shown. Positions come from `data.errors` in sf's JSON, with the
+  `[Ln X, Col Y]` suffixes in its message as a fallback.
+- Both commands complete `[name]` from the bundles in the project's
+  package directories.
+- `:AgentScriptPreview[!] [name]` starts `sf agent preview` with simulated
+  actions (live with `!`) and opens a split to chat in. `<CR>` sends the
+  prompt. Closing the split or quitting Neovim ends the session and prints
+  where sf saved the traces; quitting waits up to 10 seconds for that. One
+  session per bundle in each project; running it again jumps to the open
+  split. Both commands, run in the chat, act on its bundle. Preview needs
+  Agentforce turned on in the org, and a start that times out says so.
+- `target_org` option in `setup()`, passed as `--target-org`. Unset, sf uses
+  its default org.
+- `:checkhealth agentscript-nvim` has an sf section: the sf version and
+  whether `sf agent validate authoring-bundle` exists, checked with the same
+  command line the commands use.
+
+### Notes
+
+- sf reports 0-based lines and counts columns in characters. Both are
+  converted, so errors after non-ASCII text and in CRLF files land on the
+  right column.
+- sf validates the file on disk. Validating a modified buffer warns first.
+- On Windows the commands run sf's own `bin/run.js` with node rather than
+  the `sf.cmd` shim, because cmd.exe cuts an argument at its first newline.
+  A multi-line prompt reaches the agent intact.
+- The bundle is found from the buffer's path,
+  `aiAuthoringBundles/<Name>/<Name>.agent` next to `<Name>.bundle-meta.xml`, and
+  sf runs from the directory holding `sfdx-project.json`.
+
 ## 0.3.0 — 2026-09-25
 
 The grammar gets the same treatment the server got in 0.2.0.

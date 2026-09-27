@@ -1,0 +1,30 @@
+{
+  "name": "CompileAgentScriptError",
+  "message": "CompilationError: 'nowhere' is not defined in subagent [Ln 41, Col 51]\r\nCompilationError: 'elsewhere' is not defined in subagent [Ln 42, Col 50]",
+  "exitCode": 1,
+  "context": "AgentValidateAuthoringBundle",
+  "data": {
+    "errors": [
+      {
+        "errorType": "CompilationError",
+        "description": "'nowhere' is not defined in subagent",
+        "lineStart": 41,
+        "lineEnd": 41,
+        "colStart": 51,
+        "colEnd": 68
+      },
+      {
+        "errorType": "CompilationError",
+        "description": "'elsewhere' is not defined in subagent",
+        "lineStart": 42,
+        "lineEnd": 42,
+        "colStart": 50,
+        "colEnd": 69
+      }
+    ]
+  },
+  "warnings": [],
+  "code": "CompileAgentScriptError",
+  "status": 1,
+  "commandName": "AgentValidateAuthoringBundle"
+}
