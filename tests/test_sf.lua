@@ -450,6 +450,23 @@ vim.wait(15000, function()
 end, 20)
 pbuf = vim.api.nvim_get_current_buf()
 check(last_call().args[6] == '--use-live-actions', 'preview!: live actions', vim.inspect(last_call().args))
+
+vim.env.FAKE_SF_MODE = 'expired'
+session = sf.sessions.Nvim_Probe
+vim.api.nvim_buf_set_lines(pbuf, session.prompt_row, -1, false, { '> still there?' })
+vim.api.nvim_feedkeys(vim.keycode('<CR>'), 'x', false)
+vim.wait(15000, function()
+  return not session.busy
+end, 20)
+local tail = vim.api.nvim_buf_get_lines(pbuf, -3, -1, false)
+check(
+  tail[1]
+      == "error: Preview session '00000000-dead-beef-0000-000000000000' is invalid or has expired. " .. 'Start a new session with "sf agent preview start".'
+    and tail[2] == '> ',
+  "preview: a failed send shows sf's error in the transcript",
+  table.concat(tail, '\n')
+)
+vim.env.FAKE_SF_MODE = 'pass'
 local function ends()
   return #vim.tbl_filter(function(e)
     return e.args[3] == 'end'

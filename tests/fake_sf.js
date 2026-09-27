@@ -1,7 +1,8 @@
 // Test stub standing in for `sf`: replays output captured from a real org
 // (tests/fixtures/sf) and appends {args, cwd, pid} to $FAKE_SF_LOG.
 // $FAKE_SF_MODE picks the validate outcome: pass, fail, fail-nodata (the same
-// failure without data.errors), unicode, noorg, unknown, hang.
+// failure without data.errors), unicode, noorg, unknown, hang, and expired
+// for preview send.
 const fs = require('fs');
 const path = require('path');
 
@@ -34,6 +35,8 @@ if (args[0] === 'version') {
   else replay({ pass: 'validate-pass', fail: 'validate-fail', unicode: 'validate-unicode' }[mode]);
 } else if (sub === 'agent preview start') {
   replay('preview-start');
+} else if (sub === 'agent preview send' && mode === 'expired') {
+  replay('preview-session-invalid');
 } else if (sub === 'agent preview send') {
   const sent = entries.filter((l) => JSON.parse(l).args[2] === 'send').length;
   replay('preview-send-' + ((sent % 3) + 1));
