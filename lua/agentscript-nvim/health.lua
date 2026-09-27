@@ -9,7 +9,7 @@ local SOURCE_LABEL = {
   npx = 'npx fallback',
 }
 
-function M.check()
+local function check_plugin()
   local health = vim.health
   health.start('agentscript-nvim')
 
@@ -104,6 +104,51 @@ function M.check()
       'run :AgentScriptTSBuild (needs npm, tar and a C compiler: cc/gcc/clang/zig)',
     })
   end
+end
+
+-- Through install.system so a hung sf can't hold :checkhealth past the timeout.
+local function sf_sync(exe, args)
+  local res
+  require('agentscript-nvim.install').system(vim.list_extend({ exe }, args), {}, 30000, function(r)
+    res = r
+  end)
+  vim.wait(31000, function()
+    return res ~= nil
+  end, 50)
+  return res or { code = 124, stdout = '', stderr = 'timed out' }
+end
+
+local function check_sf()
+  local health = vim.health
+  health.start('agentscript-nvim: sf (:AgentScriptValidate, :AgentScriptPreview)')
+  local sf = require('agentscript-nvim.sf')
+  local exe = sf.exe()
+  if not exe then
+    health.warn('sf not found on PATH', { 'install the Salesforce CLI: ' .. sf.INSTALL_DOC })
+    return
+  end
+  local v = sf_sync(exe, { '--version' })
+  if v.code == 0 then
+    health.ok('sf: ' .. sf.one_line(v.stdout))
+  else
+    health.warn(('sf --version exited %d: %s'):format(v.code, sf.one_line(v.stderr)))
+  end
+  local h = sf_sync(exe, { 'agent', 'validate', 'authoring-bundle', '--help' })
+  if h.code == 0 then
+    health.ok('sf agent validate authoring-bundle --help exits 0')
+  else
+    health.error(
+      ('sf agent validate authoring-bundle --help exited %d: %s'):format(h.code, sf.one_line(h.stderr)),
+      { 'update the Salesforce CLI; the agent commands ship with it: ' .. sf.INSTALL_DOC }
+    )
+  end
+  local org = require('agentscript-nvim').opts.target_org
+  health.info('target org: ' .. (org or "sf's default (set target_org in setup() to pin one)"))
+end
+
+function M.check()
+  check_plugin()
+  check_sf()
 end
 
 return M

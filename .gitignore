@@ -10,6 +10,10 @@ scratch/ts/
 scratch/linux/nvim-linux-x86_64.tar.gz
 scratch/*.tgz
 tests/tmp-ts/
+tests/tmp-sf/
+scratch/sf-e2e/
+scratch/sf-probe/
+scratch/sf-live*.lua
 
 # Local build notes, not for the public repo
 PROGRESS.md

@@ -20,7 +20,7 @@ mkdir -p /tmp/w
 tar -C /work --exclude=./scratch/zig-extract --exclude=./scratch/zig.zip --exclude='./tests/tmp-*' -cf - . | tar -C /tmp/w -xf -
 cd /tmp/w
 fail=0
-for t in test_treesitter test_install test_lsp test_upstream_config; do
+for t in test_treesitter test_install test_lsp test_upstream_config test_sf; do
   echo "== $t =="
   if ! nvim -l "tests/$t.lua"; then fail=1; fi
 done

@@ -1,0 +1,10 @@
+{
+  "name": "PreviewSessionInvalid",
+  "message": "Preview session '00000000-dead-beef-0000-000000000000' is invalid or has expired. Start a new session with \"sf agent preview start\".",
+  "exitCode": 2,
+  "context": "AgentPreviewSend",
+  "warnings": [],
+  "code": "PreviewSessionInvalid",
+  "status": 2,
+  "commandName": "AgentPreviewSend"
+}

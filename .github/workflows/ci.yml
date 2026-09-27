@@ -30,7 +30,9 @@ jobs:
       # test_treesitter fetches the published grammar sources with npm pack
       # and builds them with the runner's gcc. test_lsp installs the real
       # server into scratch/ and runs test_treesitter again inside the same
-      # session. test_upstream_config needs an nvim-lspconfig clone.
+      # session. test_upstream_config needs an nvim-lspconfig clone. test_sf
+      # runs sf.lua against tests/fake_sf.js, which replays real org output.
       - run: nvim -l tests/test_install.lua
       - run: nvim -l tests/test_treesitter.lua
       - run: nvim -l tests/test_lsp.lua
+      - run: nvim -l tests/test_sf.lua

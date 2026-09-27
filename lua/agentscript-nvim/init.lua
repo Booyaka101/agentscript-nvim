@@ -12,6 +12,9 @@ M.opts = {
   extra_extensions = true,
   -- Notify (once) when no working server is found, with install instructions.
   install_hint = true,
+  -- Org for :AgentScriptValidate and :AgentScriptPreview (alias or username);
+  -- nil uses sf's default org.
+  target_org = nil,
 }
 
 local function register_filetypes(opts)

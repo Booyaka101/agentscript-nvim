@@ -1,0 +1,21 @@
+{
+  "status": 0,
+  "result": {
+    "messages": [
+      {
+        "type": "Inform",
+        "id": "8672fb76-a8e2-4ec5-b47c-50a7ebf00397",
+        "metrics": {},
+        "feedbackId": "784f9cba-c598-480d-b6d0-9327d8814729",
+        "planId": "784f9cba-c598-480d-b6d0-9327d8814729",
+        "isContentSafe": true,
+        "message": "I am connecting you to a human agent now. If you have any specific questions in the meantime, please let me know!",
+        "result": [],
+        "citedReferences": []
+      }
+    ],
+    "agentApiName": "Nvim_Probe",
+    "sessionId": "4a9ba646-a103-4d73-8dc4-8efaa8fb1af3"
+  },
+  "warnings": []
+}

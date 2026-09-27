@@ -1,0 +1,10 @@
+{
+  "name": "NoDefaultEnvError",
+  "message": "No default environment found. Use -o or --target-org to specify an environment.",
+  "exitCode": 1,
+  "context": "AgentValidateAuthoringBundle",
+  "warnings": [],
+  "code": "NoDefaultEnvError",
+  "status": 1,
+  "commandName": "AgentValidateAuthoringBundle"
+}

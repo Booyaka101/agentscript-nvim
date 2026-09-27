@@ -1,0 +1,2 @@
+ »   Warning: agent frobnicate is not a sf command.
+ »   Error: Run sf help agent for a list of available commands.

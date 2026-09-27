@@ -1,0 +1,46 @@
+{
+  "name": "CompileAgentScriptError",
+  "message": "SemanticError: `actions` expects a nested block with fields, not a value [Ln 40, Col 8]\r\nCompilationError: Syntax error: unexpected `ön: @utils.transition to @subagent.nöwhe…` [Ln 41, Col 26]\r\nCompilationError: Syntax error: unexpected `go_to_off_topic: @utils.transition to @s…` [Ln 42, Col 12]\r\nCompilationError: Syntax error: unexpected `go_to_ambiguous_question: @utils.transit…` [Ln 43, Col 12]",
+  "exitCode": 1,
+  "context": "AgentValidateAuthoringBundle",
+  "data": {
+    "errors": [
+      {
+        "errorType": "SemanticError",
+        "description": "`actions` expects a nested block with fields, not a value",
+        "lineStart": 40,
+        "lineEnd": 40,
+        "colStart": 8,
+        "colEnd": 15
+      },
+      {
+        "errorType": "CompilationError",
+        "description": "Syntax error: unexpected `ön: @utils.transition to @subagent.nöwhe…`",
+        "lineStart": 41,
+        "lineEnd": 41,
+        "colStart": 26,
+        "colEnd": 68
+      },
+      {
+        "errorType": "CompilationError",
+        "description": "Syntax error: unexpected `go_to_off_topic: @utils.transition to @s…`",
+        "lineStart": 42,
+        "lineEnd": 42,
+        "colStart": 12,
+        "colEnd": 69
+      },
+      {
+        "errorType": "CompilationError",
+        "description": "Syntax error: unexpected `go_to_ambiguous_question: @utils.transit…`",
+        "lineStart": 43,
+        "lineEnd": 43,
+        "colStart": 12,
+        "colEnd": 87
+      }
+    ]
+  },
+  "warnings": [],
+  "code": "CompileAgentScriptError",
+  "status": 1,
+  "commandName": "AgentValidateAuthoringBundle"
+}
