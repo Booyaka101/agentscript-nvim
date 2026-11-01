@@ -15,6 +15,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  upgrades:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - run: nvim -l tests/test_upgrades.lua
+      - run: nvim -l tests/test_install.lua
+        env:
+          AGENTSCRIPT_TEST_OFFLINE: '1'
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20

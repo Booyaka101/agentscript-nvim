@@ -3,8 +3,8 @@
 -- Strategy: measure, don't pin. `:AgentScriptInstall` resolves the currently
 -- published `@sf-agentscript/lsp-server` from the npm registry, installs it
 -- with NO overrides, and verifies it by actually speaking LSP to it (spawn +
--- `initialize` + wait for `result.capabilities`). Only if that verification
--- fails does it fall back to the legacy recipe in `M.PINS` — the
+-- `initialize` + wait for `result.capabilities`). On a first install only,
+-- a failed verification falls back to the legacy recipe in `M.PINS` — the
 -- 2.2.30 + `@sf-agentscript/language`@2.8.4 override that worked around the
 -- launch-week publish defect (salesforce/agentscript#73: `agentforce-dialect`
 -- pinned a stale `language` and crashed at import with "variantMatch is not a
@@ -26,14 +26,54 @@ M.PINS = {
 
 M.RESOLVE_TIMEOUT_MS = 15000
 M.VERIFY_TIMEOUT_MS = 15000
+M.INSTALL_TIMEOUT_MS = 120000
+M.CLEANUP_TIMEOUT_MS = 5000
 
 function M.dir()
   return vim.fs.joinpath(vim.fn.stdpath('data'), 'agentscript-nvim', 'server')
 end
 
-function M.server_js()
-  local p = vim.fs.joinpath(M.dir(), 'node_modules', '@sf-agentscript', 'lsp-server', 'dist', 'index.js')
-  if vim.uv.fs_stat(p) then
+local function generation_dir(name)
+  if name == '.' then
+    return M.dir() -- pre-versioned installs remain usable and can be rolled back to
+  end
+  if type(name) == 'string' and name:match('^versions/%d+%-%d+$') then
+    return vim.fs.joinpath(M.dir(), name)
+  end
+end
+
+function M.active()
+  local path = vim.fs.joinpath(M.dir(), 'active.json')
+  if not vim.uv.fs_stat(path) then
+    return
+  end
+  local active = M.read_json(path)
+  if
+    not active
+    or not generation_dir(active.current)
+    or (active.previous ~= nil and not generation_dir(active.previous))
+  then
+    return nil,
+      'invalid active server pointer: ' .. path .. '; restore its current/previous generation names before retrying'
+  end
+  return active
+end
+
+function M.server_js(dir)
+  if not dir then
+    local active = M.active()
+    if vim.uv.fs_stat(vim.fs.joinpath(M.dir(), 'active.json')) then
+      dir = active and generation_dir(active.current)
+      if not dir then
+        return
+      end
+    else
+      dir = M.dir()
+    end
+  end
+  local p = vim.fs.joinpath(dir, 'node_modules', '@sf-agentscript', 'lsp-server', 'dist', 'index.js')
+  local stat = vim.uv.fs_stat(p)
+  if stat and stat.type == 'file' then
     return p
   end
 end
@@ -76,10 +116,10 @@ function M.write_file(path, text)
     return nil, err
   end
   local ok, werr = f:write(text)
-  f:close()
-  if not ok then
+  local closed, cerr = f:close()
+  if not ok or not closed then
     os.remove(tmp)
-    return nil, werr
+    return nil, werr or cerr
   end
   local rok, rerr = vim.uv.fs_rename(tmp, path)
   if not rok then
@@ -94,15 +134,30 @@ function M.write_json(path, t)
   return M.write_file(path, vim.json.encode(t))
 end
 
---- Outcome of the last `:AgentScriptInstall` run, or nil if never installed.
+--- Active server state, plus a rejected attempt if the active server was kept.
 ---@return { version: string, path: string, verified: boolean, reason: string, installedAt: string }?
 function M.state()
-  return M.read_json(vim.fs.joinpath(M.dir(), 'agentscript-nvim-state.json'))
+  local active, err = M.active()
+  if err then
+    return
+  end
+  local dir = active and generation_dir(active.current) or M.dir()
+  local state = dir and M.read_json(vim.fs.joinpath(dir, 'agentscript-nvim-state.json'))
+  local attempt = M.read_json(vim.fs.joinpath(M.dir(), 'last-attempt.json'))
+  if state then
+    if attempt and not attempt.verified and attempt.current == (active and active.current or '.') then
+      state.rejected = attempt
+    end
+    return state
+  end
+  if attempt and not attempt.verified and attempt.current == (active and active.current or '.') then
+    return attempt
+  end
 end
 
 local function write_state(dir, state)
   state.installedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
-  M.write_json(vim.fs.joinpath(dir, 'agentscript-nvim-state.json'), state)
+  return M.write_json(vim.fs.joinpath(dir, 'agentscript-nvim-state.json'), state)
 end
 
 function M.npm_install_cmd()
@@ -124,6 +179,7 @@ end
 function M.system(cmd, opts, timeout_ms, on_exit)
   local settled = false
   local timer = assert(vim.uv.new_timer())
+  local timed_out, exited, killed = false, false, false
   local function settle(res)
     if settled then
       return
@@ -135,7 +191,30 @@ function M.system(cmd, opts, timeout_ms, on_exit)
       on_exit(res)
     end)
   end
-  local ok, proc = pcall(vim.system, cmd, opts, settle)
+  -- A separate Unix process group lets us stop npm's children, not just its shell.
+  opts = vim.tbl_extend('force', opts, { detach = vim.fn.has('win32') == 0 })
+  local function timeout_result(unsafe)
+    settle({
+      code = 124,
+      signal = 0,
+      stdout = '',
+      stderr = ('timed out after %.3gs'):format(timeout_ms / 1000),
+      cleanup_pending = unsafe,
+    })
+  end
+  local function stopped()
+    if exited and killed then
+      timeout_result(false)
+    end
+  end
+  local ok, proc = pcall(vim.system, cmd, opts, function(res)
+    exited = true
+    if timed_out then
+      stopped()
+    else
+      settle(res)
+    end
+  end)
   if not ok then
     settle({ code = -1, signal = 0, stdout = '', stderr = tostring(proc) })
     return
@@ -144,12 +223,22 @@ function M.system(cmd, opts, timeout_ms, on_exit)
   -- exit callback then waits for npm's node child (~70s offline) to close
   -- the pipe.
   timer:start(timeout_ms, 0, function()
-    settle({ code = 124, signal = 0, stdout = '', stderr = ('timed out after %ds'):format(timeout_ms / 1000) })
+    timed_out = true
+    timer:start(M.CLEANUP_TIMEOUT_MS, 0, function()
+      timeout_result(true)
+    end)
     vim.schedule(function()
       if vim.fn.has('win32') == 1 then
-        pcall(vim.system, { 'taskkill', '/T', '/F', '/PID', tostring(proc.pid) })
+        local spawned = pcall(vim.system, { 'taskkill', '/T', '/F', '/PID', tostring(proc.pid) }, {}, function(res)
+          killed = res.code == 0
+          stopped()
+        end)
+        if not spawned then
+          timeout_result(true)
+        end
       else
-        pcall(proc.kill, proc, 15)
+        killed = not not vim.uv.kill(-proc.pid, 9)
+        stopped()
       end
     end)
   end)
@@ -161,7 +250,7 @@ M.VERSION_PATTERN = '^%d+%.%d+%.%d+[%w%.%+%-]*$'
 --- Ask the npm registry for the currently published version (async, never
 --- blocks the UI thread). Calls on_done with the version string, or nil on
 --- any failure (no npm, no network, timeout, unparseable output).
----@param on_done fun(version: string?)
+---@param on_done fun(version: string?, cleanup_pending: boolean?)
 ---@param pkg? string defaults to the language server package
 function M.resolve_latest(on_done, pkg)
   local cmd = { 'npm', 'view', pkg or PKG, 'version', '--json' }
@@ -170,7 +259,10 @@ function M.resolve_latest(on_done, pkg)
   end
   M.system(cmd, {}, M.RESOLVE_TIMEOUT_MS, function(res)
     local ok, v = pcall(vim.json.decode, vim.trim(res.stdout or ''))
-    on_done(res.code == 0 and ok and type(v) == 'string' and v:match(M.VERSION_PATTERN) and v or nil)
+    on_done(
+      res.code == 0 and ok and type(v) == 'string' and v:match(M.VERSION_PATTERN) and v or nil,
+      res.cleanup_pending
+    )
   end)
 end
 
@@ -187,25 +279,40 @@ function M.verify(js_path, on_done, timeout_ms)
   timeout_ms = timeout_ms or M.VERIFY_TIMEOUT_MS
   local stdout_buf, stderr_buf = '', ''
   local done = false
+  local exited, emitted, outcome, description = false, false, false, ''
   local proc
   local timer = vim.uv.new_timer()
   local t0 = vim.uv.hrtime()
+
+  local function emit(unsafe)
+    if emitted then
+      return
+    end
+    emitted = true
+    if timer and not timer:is_closing() then
+      timer:stop()
+      timer:close()
+    end
+    vim.schedule(function()
+      on_done(outcome and not unsafe, description, unsafe)
+    end)
+  end
 
   local function finish(ok, detail)
     if done then
       return
     end
-    done = true
-    if timer and not timer:is_closing() then
-      timer:stop()
-      timer:close()
+    done, outcome, description = true, ok, detail
+    if exited or not proc then
+      emit(false)
+      return
     end
-    if proc then
-      pcall(proc.kill, proc, 9)
-    end
-    vim.schedule(function()
-      on_done(ok, detail)
+    -- Do not delete staging or release the lock while node still has files open.
+    timer:stop()
+    timer:start(M.CLEANUP_TIMEOUT_MS, 0, function()
+      emit(true)
     end)
+    pcall(proc.kill, proc, 9)
   end
 
   local function stderr_line()
@@ -220,7 +327,7 @@ function M.verify(js_path, on_done, timeout_ms)
       if not header_end then
         return
       end
-      local len = tonumber(stdout_buf:sub(1, header_end - 1):match('Content%-Length:%s*(%d+)'))
+      local len = tonumber(stdout_buf:sub(1, header_end - 1):lower():match('content%-length:%s*(%d+)'))
       if not len then
         finish(false, 'malformed LSP framing from server')
         return
@@ -232,8 +339,18 @@ function M.verify(js_path, on_done, timeout_ms)
       local body = stdout_buf:sub(body_start, body_start + len - 1)
       stdout_buf = stdout_buf:sub(body_start + len)
       local ok, msg = pcall(vim.json.decode, body)
-      if ok and type(msg) == 'table' and msg.id == 1 and type(msg.result) == 'table' and msg.result.capabilities then
+      if
+        ok
+        and type(msg) == 'table'
+        and msg.id == 1
+        and type(msg.result) == 'table'
+        and type(msg.result.capabilities) == 'table'
+      then
         finish(true, ('initialize answered in %dms'):format(math.floor((vim.uv.hrtime() - t0) / 1e6)))
+        return
+      end
+      if ok and type(msg) == 'table' and msg.id == 1 then
+        finish(false, 'initialize response did not contain capabilities')
         return
       end
     end
@@ -245,6 +362,10 @@ function M.verify(js_path, on_done, timeout_ms)
       stdout = function(_, data)
         if data and not done then
           stdout_buf = stdout_buf .. data
+          if #stdout_buf > 1024 * 1024 then
+            finish(false, 'server exceeded verification output limit')
+            return
+          end
           scan_stdout()
         end
       end,
@@ -254,7 +375,10 @@ function M.verify(js_path, on_done, timeout_ms)
         end
       end,
     }, function(res)
-      if not done then
+      exited = true
+      if done then
+        emit(false)
+      else
         finish(false, stderr_line() or ('server exited with code ' .. tostring(res.code) .. ' before answering'))
       end
     end)
@@ -274,131 +398,232 @@ function M.verify(js_path, on_done, timeout_ms)
       capabilities = vim.empty_dict(),
     },
   })
-  proc:write(('Content-Length: %d\r\n\r\n%s'):format(#request, request))
+  local wrote, write_err = pcall(proc.write, proc, ('Content-Length: %d\r\n\r\n%s'):format(#request, request))
+  if not wrote then
+    finish(false, 'cannot send initialize: ' .. tostring(write_err))
+    return
+  end
 
   timer:start(timeout_ms, 0, function()
     finish(false, ('verify timed out after %dms'):format(timeout_ms))
   end)
 end
 
---- Install (or update) the server, verified. Two attempts against the same
---- dir: (a) the currently published version, no overrides; (b) only if (a)
---- fails verification, the legacy pinned recipe. Calls on_done(ok, msg).
----@param on_done? fun(ok: boolean, msg: string)
-function M.install(on_done)
-  on_done = on_done
+local function callback(on_done)
+  return on_done
     or function(ok, msg)
       vim.notify('agentscript-nvim: ' .. msg, ok and vim.log.levels.INFO or vim.log.levels.ERROR)
     end
+end
+
+-- Exclusive across Neovim processes, not just repeated commands in one session.
+-- A crash leaves the lock for explicit recovery rather than risking a live npm child.
+local function lock(on_done)
+  local dir = M.dir()
+  local made, err = pcall(vim.fn.mkdir, dir, 'p')
+  if not made then
+    on_done(false, 'cannot create install directory: ' .. tostring(err))
+    return
+  end
+  local path = vim.fs.joinpath(dir, 'install.lock')
+  local fd, open_err = vim.uv.fs_open(path, 'wx', 384)
+  if not fd then
+    on_done(
+      false,
+      'install/rollback unavailable: '
+        .. tostring(open_err)
+        .. '. If an earlier Neovim crashed, confirm its npm/node children have stopped before removing '
+        .. path
+    )
+    return
+  end
+  vim.uv.fs_write(fd, tostring(vim.uv.os_getpid()), 0)
+  vim.uv.fs_close(fd)
+  local finished = false
+  return function(ok, msg, retain_lock)
+    if finished then
+      return
+    end
+    finished = true
+    if retain_lock then
+      msg = msg .. '; process cleanup unconfirmed, lock retained: ' .. path
+    else
+      vim.uv.fs_unlink(path)
+    end
+    on_done(ok, msg)
+  end
+end
+
+local function activate(current, previous)
+  local ok, err = M.write_json(vim.fs.joinpath(M.dir(), 'active.json'), { current = current, previous = previous })
+  if ok then
+    -- Activation has committed. A config error must not leave the install locked.
+    local configured, config_err = pcall(function()
+      local plugin = require('agentscript-nvim')
+      vim.lsp.config('agentscript', { cmd = plugin.resolve_cmd(plugin.opts) })
+    end)
+    if not configured then
+      vim.notify(
+        'agentscript-nvim: server activated; reopen Neovim to refresh LSP config: ' .. tostring(config_err),
+        vim.log.levels.WARN
+      )
+    end
+  end
+  return ok, err
+end
+
+--- Install into an immutable generation. Only a verified server can replace
+--- active.json; existing clients keep their old command and files.
+function M.install(on_done)
+  on_done = callback(on_done)
   if vim.fn.executable('npm') == 0 or vim.fn.executable('node') == 0 then
     on_done(false, 'node/npm not found on PATH; install Node.js first')
     return
   end
-  local dir = M.dir()
-  vim.fn.mkdir(dir, 'p')
-
-  local function notify(msg)
-    vim.notify('agentscript-nvim: ' .. msg, vim.log.levels.INFO)
+  local finish = lock(on_done)
+  if not finish then
+    return
   end
-
-  -- Write the manifest for one recipe, npm install it, then LSP-verify it.
-  local function attempt(version, with_override, on_result)
-    local manifest = {
-      name = 'agentscript-nvim-server',
-      private = true,
-      dependencies = { [PKG] = version },
-    }
+  local old, pointer_err = M.active()
+  if pointer_err then
+    finish(false, pointer_err)
+    return
+  end
+  local previous = old and old.current or (M.server_js() and '.')
+  local function result(ok, state, msg, retain_lock)
+    state.installedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
+    local active = M.active()
+    state.current = active and active.current or '.'
+    local saved, err = M.write_json(vim.fs.joinpath(M.dir(), 'last-attempt.json'), state)
+    if not saved then
+      msg = msg .. '; could not record attempt: ' .. tostring(err)
+    end
+    if not ok and M.server_js() then
+      msg = msg .. '; upgrade rejected, previous version retained'
+    end
+    finish(ok, msg, retain_lock)
+  end
+  local function attempt(version, with_override, path, on_result)
+    local name = ('versions/%d-%d'):format(vim.uv.os_getpid(), vim.uv.hrtime())
+    local dir = generation_dir(name)
+    local made, err = pcall(vim.fn.mkdir, dir, 'p')
+    if not made then
+      on_result(false, 'cannot create staging directory: ' .. tostring(err))
+      return
+    end
+    local function reject(detail)
+      vim.fn.delete(dir, 'rf') -- only this attempt's unique, unselected generation
+      on_result(false, detail)
+    end
+    local manifest = { name = 'agentscript-nvim-server', private = true, dependencies = { [PKG] = version } }
     if with_override then
       manifest.overrides = { ['@sf-agentscript/language'] = M.PINS.language_override }
     end
-    local f = assert(io.open(vim.fs.joinpath(dir, 'package.json'), 'w'))
-    f:write(vim.json.encode(manifest))
-    f:close()
-    -- The two recipes resolve differently; a lock from the other one must not
-    -- constrain (or conflict with) this install.
-    vim.uv.fs_unlink(vim.fs.joinpath(dir, 'package-lock.json'))
-    vim.system(M.npm_install_cmd(), { cwd = dir }, function(res)
-      vim.schedule(function()
-        if res.code ~= 0 then
-          on_result(false, 'npm install failed (exit ' .. tostring(res.code) .. '): ' .. vim.trim(res.stderr or ''))
-          return
-        end
-        local js = M.server_js()
-        if not js then
-          on_result(false, 'npm install succeeded but the server entrypoint is missing')
-          return
-        end
-        M.verify(js, on_result)
-      end)
-    end)
-  end
-
-  local function finish(ok, state, msg)
-    write_state(dir, state)
-    if ok then
-      -- Point the active config at the fresh install for new buffers.
-      vim.lsp.config('agentscript', { cmd = M.cmd() })
-    end
-    on_done(ok, msg)
-  end
-
-  notify('resolving ' .. PKG .. ' ...')
-  M.resolve_latest(function(latest)
-    if not latest then
-      notify('npm view failed (offline?); installing the pinned ' .. M.PINS.lsp_server .. ' workaround directly ...')
-      attempt(M.PINS.lsp_server, true, function(ok, detail)
-        finish(
-          ok,
-          { version = M.PINS.lsp_server, path = 'pinned-offline', verified = ok, reason = detail },
-          ok and (M.PINS.lsp_server .. ' (pinned-offline) verified. Reopen your .agent buffer.')
-            or (M.PINS.lsp_server .. ' (pinned-offline) failed: ' .. detail)
-        )
-      end)
+    local wrote, write_err = M.write_json(vim.fs.joinpath(dir, 'package.json'), manifest)
+    if not wrote then
+      reject('cannot write manifest: ' .. tostring(write_err))
       return
     end
-    notify('installing ' .. latest .. ' ...')
-    attempt(latest, false, function(ok, detail)
-      if ok then
-        finish(
-          true,
-          { version = latest, path = 'current', verified = true, reason = detail },
-          latest .. ' verified (' .. detail .. '). Reopen your .agent buffer.'
-        )
+    M.system(M.npm_install_cmd(), { cwd = dir }, M.INSTALL_TIMEOUT_MS, function(res)
+      if res.code ~= 0 then
+        if res.cleanup_pending then
+          on_result(false, 'npm process cleanup unconfirmed; staging directory retained: ' .. dir, true)
+          return
+        end
+        reject('npm install failed (exit ' .. tostring(res.code) .. '): ' .. vim.trim(res.stderr or ''))
         return
       end
-      notify(
-        latest
-          .. ' failed to start ('
-          .. detail
-          .. '); falling back to the pinned '
-          .. M.PINS.lsp_server
-          .. ' + language@'
-          .. M.PINS.language_override
-          .. ' workaround ...'
-      )
-      attempt(M.PINS.lsp_server, true, function(ok2, detail2)
-        finish(
-          ok2,
-          {
-            version = M.PINS.lsp_server,
-            path = 'fallback',
-            verified = ok2,
-            reason = ok2 and detail2 or (latest .. ': ' .. detail .. ' | ' .. M.PINS.lsp_server .. ': ' .. detail2),
-          },
-          ok2 and (M.PINS.lsp_server .. ' (fallback) verified. Reopen your .agent buffer.')
-            or (
-              'both installs failed verification — '
-              .. latest
-              .. ': '
-              .. detail
-              .. ' | '
-              .. M.PINS.lsp_server
-              .. ' (fallback): '
-              .. detail2
-            )
-        )
+      local js = M.server_js(dir)
+      if not js then
+        reject('npm install succeeded but the server entrypoint is missing')
+        return
+      end
+      M.verify(js, function(ok, detail, cleanup_pending)
+        if cleanup_pending then
+          on_result(false, 'server cleanup unconfirmed; staging directory retained: ' .. dir, true)
+          return
+        end
+        if not ok then
+          reject(detail)
+          return
+        end
+        local saved, save_err = write_state(dir, { version = version, path = path, verified = true, reason = detail })
+        if saved then
+          saved, save_err = activate(name, previous)
+        end
+        if not saved then
+          reject('cannot activate verified server: ' .. tostring(save_err))
+          return
+        end
+        on_result(true, detail)
       end)
     end)
+  end
+  M.resolve_latest(function(latest, cleanup_pending)
+    if cleanup_pending then
+      result(
+        false,
+        { verified = false, reason = 'registry process cleanup unconfirmed' },
+        'registry process cleanup unconfirmed',
+        true
+      )
+      return
+    end
+    -- Offline must not silently downgrade an already installed server.
+    if not latest and M.server_js() then
+      result(false, { verified = false, reason = 'npm registry unavailable' }, 'npm registry unavailable')
+      return
+    end
+    local function run(version, override, path, failed_latest)
+      attempt(version, override, path, function(ok, detail, retain_lock)
+        if not ok and not retain_lock and path == 'current' and not M.server_js() then
+          run(M.PINS.lsp_server, true, 'fallback', version .. ': ' .. detail)
+          return
+        end
+        local reason = failed_latest and not ok and (failed_latest .. ' | ' .. version .. ': ' .. detail) or detail
+        result(
+          ok,
+          { version = version, path = path, verified = ok, reason = reason },
+          ok and (version .. ' verified (' .. path .. '). Reopen your .agent buffer.') or reason,
+          retain_lock
+        )
+      end)
+    end
+    run(latest or M.PINS.lsp_server, not latest, latest and 'current' or 'pinned-offline')
+  end)
+end
+
+--- Reverify the previous generation before atomically switching back to it.
+function M.rollback(on_done)
+  local finish = lock(callback(on_done))
+  if not finish then
+    return
+  end
+  local active, pointer_err = M.active()
+  if pointer_err then
+    finish(false, pointer_err)
+    return
+  end
+  local dir = active and generation_dir(active.previous)
+  local js = dir and M.server_js(dir)
+  if not js then
+    finish(false, 'no previous managed server available for rollback')
+    return
+  end
+  M.verify(js, function(ok, detail, cleanup_pending)
+    if not ok then
+      finish(false, 'rollback rejected; current version retained: ' .. detail, cleanup_pending)
+      return
+    end
+    local saved, err = activate(active.previous, active.current)
+    if saved then
+      vim.uv.fs_unlink(vim.fs.joinpath(M.dir(), 'last-attempt.json'))
+    end
+    finish(
+      not not saved,
+      saved and 'previous server verified and restored. Reopen your .agent buffer.'
+        or ('rollback activation failed; current version retained: ' .. tostring(err))
+    )
   end)
 end
 

@@ -7,6 +7,10 @@ vim.api.nvim_create_user_command('AgentScriptInstall', function()
   require('agentscript-nvim.install').install()
 end, { desc = 'Install a version-verified @sf-agentscript/lsp-server into stdpath("data")' })
 
+vim.api.nvim_create_user_command('AgentScriptRollback', function()
+  require('agentscript-nvim.install').rollback()
+end, { desc = 'Verify and restore the previous managed language server' })
+
 vim.api.nvim_create_user_command('AgentScriptTSBuild', function(args)
   require('agentscript-nvim.treesitter').install(
     nil,

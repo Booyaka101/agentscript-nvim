@@ -185,6 +185,11 @@ vim.fn.delete(tmp_root, 'rf')
 
 -- Part 2: the real install (network) ---------------------------------------
 
+if vim.env.AGENTSCRIPT_TEST_OFFLINE == '1' then
+  print(failures == 0 and 'OFFLINE INSTALL TEST PASSED' or (failures .. ' TEST(S) FAILED'))
+  os.exit(failures == 0 and 0 or 1)
+end
+
 finished, ok_r, msg_r = run_install()
 print(('install finished=%s ok=%s: %s'):format(tostring(finished), tostring(ok_r), tostring(msg_r)))
 check(finished and ok_r, 'real install succeeds')
