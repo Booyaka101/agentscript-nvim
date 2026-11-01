@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Install language servers into separate versioned directories and atomically
+  select them only after verification. Failed upgrades and offline checks keep
+  the current server instead of mutating it or downgrading to the historical pin.
+- Add `:AgentScriptRollback`, which verifies the previous installation before
+  switching back. Existing clients and explicit command overrides are preserved.
+- Serialize installs and rollbacks across Neovim processes. Bound npm installs
+  to two minutes and show rejected upgrades and lock recovery guidance in health checks.
+- Add offline failure-path tests on Windows and Linux, including legacy installs,
+  failed activation, cross-process locking and rollback verification.
+
 ## 0.4.0 — 2026-09-27
 
 Validate and preview an authoring bundle against your org without leaving

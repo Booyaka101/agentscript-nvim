@@ -14,6 +14,15 @@ const map = Object.fromEntries(
     .map((s) => s.split('='))
 );
 const mode = map[version];
+if (mode === 'hang') {
+  setTimeout(() => {}, 60000);
+  return;
+}
+if (mode === 'missing') process.exit(0);
+if (mode === 'download-fail') {
+  process.stderr.write('simulated download failure\n');
+  process.exit(1);
+}
 if (!mode) {
   process.stderr.write(`fake_npm: no behavior mapped for version ${version}\n`);
   process.exit(1);

@@ -44,6 +44,13 @@ local function check_plugin()
   end
 
   local install = require('agentscript-nvim.install')
+  local lock = vim.fs.joinpath(install.dir(), 'install.lock')
+  if vim.uv.fs_stat(lock) then
+    health.warn('server install/rollback lock: ' .. lock, {
+      'an install may still be running in another Neovim',
+      'after a crash, confirm its npm/node children have stopped before removing this lock',
+    })
+  end
   local state = install.state()
   if state then
     local line = ('managed install: %s via %s path — %s (%s)'):format(
@@ -56,6 +63,15 @@ local function check_plugin()
       health.ok(line)
     else
       health.warn(line, { 'run :AgentScriptInstall to retry' })
+    end
+    if state.rejected then
+      health.warn('server upgrade rejected; previous version retained: ' .. tostring(state.rejected.reason), {
+        'run :AgentScriptInstall to retry',
+      })
+    end
+    local active = install.active()
+    if active and active.previous then
+      health.info('previous server retained (:AgentScriptRollback verifies it before switching)')
     end
   else
     health.info('managed install: never run (:AgentScriptInstall installs a version-verified server)')

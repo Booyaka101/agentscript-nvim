@@ -16,7 +16,9 @@ What you get:
   ([#4483](https://github.com/neovim/nvim-lspconfig/pull/4483)).
 - **`:AgentScriptInstall`** — one-command managed server install into
   `stdpath('data')` that installs the currently published server and
-  **verifies it actually starts** before trusting it (below).
+  **verifies it actually starts** before trusting it. Failed upgrades keep
+  the working server. **`:AgentScriptRollback`** restores the previous
+  installation after verifying it again (below).
 - **`:AgentScriptTSBuild`**: builds the published tree-sitter grammar into
   `stdpath('data')` and verifies it parses current syntax before using it
   (below).
@@ -75,16 +77,38 @@ publish breaks.
    (`npm view`), installs it with **no** overrides, and
 2. **verifies** it by spawning it and completing a real LSP `initialize`
    round-trip;
-3. only if that fails does it fall back to the historically verified recipe
+3. only if that fails **and no server is already installed** does it fall back to the historically verified recipe
    (`2.2.30` + npm override `@sf-agentscript/language` → `2.8.4`) — applying
    that override to a current release pre-emptively would *downgrade*
    `language` by many minor versions, so it is strictly a fallback;
-4. if the registry is unreachable it installs the pinned recipe directly and
-   says so.
+4. if the registry is unreachable it keeps an existing server. On a first
+   install it tries the pinned recipe directly and says so.
 
-The outcome (version, install path, verification result) is recorded in
-`agentscript-nvim-state.json` next to the install and shown by
-`:checkhealth agentscript-nvim`.
+Each attempt uses a separate directory under
+`stdpath('data')/agentscript-nvim/server/versions/`. Only after npm succeeds
+and the server answers an LSP initialize request does an atomic `active.json`
+pointer select it. Failed downloads, startup crashes and verification timeouts
+leave the existing command and files untouched. The npm step has a two-minute
+timeout. Existing clients are not stopped or restarted.
+
+`:AgentScriptRollback` verifies the previous server and switches the pointer
+back. It also keeps the replaced version, so running it again switches forward.
+Reopen your `.agent` buffer to use the selected server; an already attached
+client keeps its current version. An explicit `opts.cmd` still takes priority.
+Installs made before versioned directories are supported without moving their
+files, including rollback after the first upgrade.
+
+`:checkhealth agentscript-nvim` shows the active version and verification
+result, any rejected upgrade, and whether a previous server is available.
+Per-generation state is in `agentscript-nvim-state.json`; the most recent
+attempt is recorded separately in `last-attempt.json`.
+
+An exclusive `server/install.lock` prevents concurrent installs and rollbacks,
+including from another Neovim process. If Neovim crashes, confirm that its npm
+and verification children have stopped before removing that exact lock file
+and retrying. The plugin does not kill unrelated processes or guess that an
+old lock is safe to remove. Old successful generations are retained because
+another Neovim may still be running them; no automatic pruning occurs.
 
 ## Server resolution order
 
