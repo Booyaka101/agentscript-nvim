@@ -90,6 +90,9 @@ and the server answers an LSP initialize request does an atomic `active.json`
 pointer select it. Failed downloads, startup crashes and verification timeouts
 leave the existing command and files untouched. The npm step has a two-minute
 timeout. Existing clients are not stopped or restarted.
+On timeout, the installer stops the process tree and waits for termination before
+deleting staging files or releasing its lock. If cleanup cannot be confirmed within
+five seconds, it retains both staging and the lock for explicit recovery.
 
 `:AgentScriptRollback` verifies the previous server and switches the pointer
 back. It also keeps the replaced version, so running it again switches forward.
@@ -109,6 +112,11 @@ and verification children have stopped before removing that exact lock file
 and retrying. The plugin does not kill unrelated processes or guess that an
 old lock is safe to remove. Old successful generations are retained because
 another Neovim may still be running them; no automatic pruning occurs.
+Malformed `active.json` pointers are reported by health checks and block install
+and rollback without overwriting the pointer. Restore its valid `current` and
+optional `previous` generation names from the retained installation directories
+before retrying; generation names are `versions/<pid>-<timestamp>` or `.` for a
+legacy installation.
 
 ## Server resolution order
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Confirm timed-out process-tree termination before cleanup or unlocking. Retain
+  staging and the lock if termination cannot be confirmed. Reject malformed active
+  pointers without overwriting them, and validate LSP capabilities and output size.
+
 - Install language servers into separate versioned directories and atomically
   select them only after verification. Failed upgrades and offline checks keep
   the current server instead of mutating it or downgrading to the historical pin.

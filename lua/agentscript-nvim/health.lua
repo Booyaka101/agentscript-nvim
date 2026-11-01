@@ -28,6 +28,11 @@ local function check_plugin()
   end
 
   local agentscript = require('agentscript-nvim')
+  local install = require('agentscript-nvim.install')
+  local _, pointer_err = install.active()
+  if pointer_err then
+    health.error(pointer_err)
+  end
   local cmd, source = agentscript.resolve_cmd(agentscript.opts)
   if not cmd then
     health.error('no language server available', { 'install Node.js, then run :AgentScriptInstall' })
@@ -43,7 +48,6 @@ local function check_plugin()
     health.ok(msg)
   end
 
-  local install = require('agentscript-nvim.install')
   local lock = vim.fs.joinpath(install.dir(), 'install.lock')
   if vim.uv.fs_stat(lock) then
     health.warn('server install/rollback lock: ' .. lock, {
@@ -73,7 +77,9 @@ local function check_plugin()
     if active and active.previous then
       health.info('previous server retained (:AgentScriptRollback verifies it before switching)')
     end
-  else
+  elseif not pointer_err and install.server_js() then
+    health.warn('managed install: verification state missing; run :AgentScriptInstall to verify a fresh generation')
+  elseif not pointer_err then
     health.info('managed install: never run (:AgentScriptInstall installs a version-verified server)')
   end
 
